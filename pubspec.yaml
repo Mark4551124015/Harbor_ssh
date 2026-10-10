@@ -1,0 +1,28 @@
+name: macos_ssh_tool
+description: A high-performance SSH manager for macOS.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 核心 UI 库，打造原生 macOS 体验
+  macos_ui: ^2.0.0
+  # 状态管理
+  provider: ^6.0.0
+  # 路径处理
+  path_provider: ^2.1.1
+  path: ^1.8.3
+  # 简单的图标库
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
