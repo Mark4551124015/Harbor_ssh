@@ -92,6 +92,32 @@ flutter --no-version-check build macos --release
 open build/macos/Build/Products/Release/Harbor.app
 ```
 
+## 版本命名
+
+以 `pubspec.yaml` 为唯一版本来源，每次发布递增构建号。
+
+| 字段 | Beta 示例 | 正式版示例 |
+| --- | --- | --- |
+| 应用/包版本 | `1.0.3-beta.1+5` | `1.0.3+7` |
+| Git tag | `v1.0.3-beta.1` | `v1.0.3` |
+| Release 标题 / changelog 标题 | `1.0.3-beta.1` | `1.0.3` |
+| 安装包文件名前缀 | `Harbor-1.0.3-beta.1-` | `Harbor-1.0.3-` |
+
+同一版本的连续测试版使用 `.1`、`.2` 等序号。Tag 固定加 `v` 前缀，不包含构建号。
+macOS 的应用版本字段必须是纯数字，因此显示为 `1.0.3`，由构建号区分具体更新。
+公开 Beta 继续作为普通 GitHub Release 发布并标记 Latest，供应用内更新发现。
+Release changelog 统一使用英文。
+
+修改版本号和 changelog 后，可生成并校验 tag：
+
+```sh
+python3 scripts/release.py tag
+python3 scripts/release.py preflight --tag v1.0.3-beta.1
+```
+
+历史版本也补齐规范的 `v<版本号>` tag；原 tag 和 Release 附件作为旧链接兼容入口保留，
+当前规范版本标记为 Latest。
+
 ## 许可证
 
 Apache License 2.0 — 见 [LICENSE](LICENSE)。Copyright 2026 mark455。

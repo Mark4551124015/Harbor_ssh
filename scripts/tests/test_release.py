@@ -43,17 +43,13 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.version(self.root)
 
-    def test_public_beta_tag_matches_semver(self):
-        (self.root / 'pubspec.yaml').write_text('version: 1.0.1-beta+3\n')
-        self.assertEqual(release.preflight('beta-1.0.1', root=self.root), ('1.0.1-beta', '3'))
-        with self.assertRaises(ValueError):
-            release.preflight('beta-1.0.2', root=self.root)
-
-    def test_public_beta_suffix_tag_matches_version(self):
-        (self.root / 'pubspec.yaml').write_text('version: 1.0.2-beta+4\n')
-        self.assertEqual(release.preflight('1.0.2-beta', root=self.root), ('1.0.2-beta', '4'))
-        with self.assertRaises(ValueError):
-            release.preflight('1.0.3-beta', root=self.root)
+    def test_beta_tag_uses_v_prefix_and_preserves_version_order(self):
+        for value in ['1.0.2-beta', '1.0.3-beta.1', '1.0.3-beta.2']:
+            (self.root / 'pubspec.yaml').write_text(f'version: {value}+4\n')
+            self.assertEqual(release.preflight(f'v{value}', root=self.root), (value, '4'))
+            for invalid in [value, 'beta-1.0.2', 'v1.0.4-beta.1', f'v{value}+4']:
+                with self.assertRaises(ValueError):
+                    release.preflight(invalid, root=self.root)
 
     def test_release_notes_match_exact_version_only(self):
         (self.root / 'CHANGELOG.md').write_text(

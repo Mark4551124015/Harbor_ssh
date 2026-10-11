@@ -29,11 +29,7 @@ def version(root=ROOT):
 
 def preflight(tag, official=False, root=ROOT):
     release, build = version(root)
-    allowed_tags = {f'v{release}'}
-    if release.endswith('-beta'):
-        allowed_tags.add(f'beta-{release.removesuffix("-beta")}')
-        allowed_tags.add(release)
-    if tag not in allowed_tags:
+    if tag != f'v{release}':
         raise ValueError(f'Tag must match pubspec version: v{release}')
     app_info = (root / 'macos/Runner/Configs/AppInfo.xcconfig').read_text()
     if 'com.example' in app_info:
@@ -44,7 +40,10 @@ def preflight(tag, official=False, root=ROOT):
 
 
 def release_notes(root=ROOT):
-    release, _ = version(root)
+    return release_notes_for(version(root)[0], root)
+
+
+def release_notes_for(release, root=ROOT):
     changelog = (root / 'CHANGELOG.md').read_text()
     match = re.search(r'^## ' + re.escape(release) + r'\s*\n(.*?)(?=^## |\Z)',
                       changelog, re.M | re.S)
@@ -132,6 +131,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('build-name')
     sub.add_parser('notes')
+    sub.add_parser('tag')
     pre = sub.add_parser('preflight')
     pre.add_argument('--tag', required=True)
     pre.add_argument('--official', action='store_true')
@@ -147,6 +147,8 @@ def main():
     try:
         if args.command == 'build-name':
             print(version()[0].split('-')[0])
+        elif args.command == 'tag':
+            print(f'v{version()[0]}')
         elif args.command == 'notes':
             print(release_notes(), end='')
         elif args.command == 'preflight':

@@ -23,7 +23,7 @@
 
 Published as a normal GitHub Release, with universal macOS ZIP and DMG packages, an update manifest, and SHA-256 checksums.
 
-## beta-1.0.1
+## 1.0.1-beta
 
 - Automatic update checks at startup, manual checks in Settings, and in-app installation with checksum verification and restart.
 - Closing a window preserves controllable port mappings; quitting stops all owned mappings, including starts in flight.

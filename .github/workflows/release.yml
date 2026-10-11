@@ -1,11 +1,11 @@
 name: Release
 on:
   push:
-    tags: ['v*', 'beta-*', '*-beta']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag, e.g. v1.0.0 or v1.0.0-beta.1
+        description: Canonical version tag, e.g. v1.0.3-beta.1 or v1.0.3
         required: true
         type: string
       signed:
@@ -109,7 +109,7 @@ jobs:
           python3 scripts/release.py notes > "$RUNNER_TEMP/release-notes.md"
           # Public beta builds remain eligible for the in-app updater.
           case "$RELEASE_TAG" in
-            beta-*|*-beta) PRERELEASE="--prerelease=false"; LATEST="--latest" ;;
+            v*-beta|v*-beta.*) PRERELEASE="--prerelease=false"; LATEST="--latest" ;;
             *-*) PRERELEASE="--prerelease"; LATEST="" ;;
             *) PRERELEASE="--prerelease=false"; LATEST="--latest" ;;
           esac
@@ -117,7 +117,7 @@ jobs:
             test "$(cat existing.txt)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file "$RUNNER_TEMP/release-notes.md" \
-              --title "$RELEASE_TAG" $PRERELEASE
+              --title "${RELEASE_TAG#v}" $PRERELEASE
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
           # Publish only after the assets are in place, so the release is never visible empty.

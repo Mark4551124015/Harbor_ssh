@@ -97,6 +97,33 @@ flutter --no-version-check build macos --release
 open build/macos/Build/Products/Release/Harbor.app
 ```
 
+## Version naming
+
+`pubspec.yaml` is the source of truth. The build number increases with every release.
+
+| Field | Beta example | Stable example |
+| --- | --- | --- |
+| App/package version | `1.0.3-beta.1+5` | `1.0.3+7` |
+| Git tag | `v1.0.3-beta.1` | `v1.0.3` |
+| Release title / changelog heading | `1.0.3-beta.1` | `1.0.3` |
+| Archive prefix | `Harbor-1.0.3-beta.1-` | `Harbor-1.0.3-` |
+
+Use `.1`, `.2`, and so on for successive beta builds of the same version. Tags always
+use a `v` prefix and never include the build number. macOS requires a numeric app
+version, so it displays `1.0.3`; the build number identifies the exact update.
+Public beta releases remain normal GitHub Releases marked Latest for in-app updates.
+Release notes are written in English.
+
+After updating the version and changelog, obtain and validate the tag with:
+
+```sh
+python3 scripts/release.py tag
+python3 scripts/release.py preflight --tag v1.0.3-beta.1
+```
+
+Historical releases also have canonical `v<version>` tags. Original tags and release
+assets remain as legacy download links; the canonical current release is marked Latest.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 mark455.
