@@ -60,6 +60,19 @@ class MigrationTests(unittest.TestCase):
                 migration.migrate('1.0.2-beta', '1.0.2-beta', 'commit', 4)
             self.assertEqual(api.call_count, 1)
 
+    def test_cancel_only_rebuilds_for_exact_migrated_aliases(self):
+        commit = migration.MIGRATIONS[-1][2]
+        runs = {'workflow_runs': [
+            {'id': 1, 'event': 'push', 'status': 'queued', 'head_branch': 'v1.0.2-beta', 'head_sha': commit},
+            {'id': 2, 'event': 'push', 'status': 'completed', 'head_branch': 'v1.0.2-beta', 'head_sha': commit},
+            {'id': 3, 'event': 'push', 'status': 'in_progress', 'head_branch': 'main', 'head_sha': commit},
+            {'id': 4, 'event': 'push', 'status': 'queued', 'head_branch': 'v1.0.2-beta', 'head_sha': 'different'},
+        ]}
+        with patch.object(migration, 'api', return_value=runs) as api:
+            migration.cancel_duplicate_builds()
+            self.assertEqual(api.call_count, 2)
+            self.assertEqual(api.call_args.args, ('/actions/runs/1/cancel', 'POST'))
+
     def test_already_canonical_release_only_changes_title_and_notes(self):
         source = {'id': 7, 'draft': False, 'prerelease': True}
         with patch.object(migration, 'api', return_value=source) as api, \

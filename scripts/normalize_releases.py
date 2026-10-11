@@ -36,7 +36,8 @@ def api(path, method='GET', payload=None, binary=None):
         headers['Content-Type'] = 'application/octet-stream'
     try:
         with urlopen(Request(url, data=data, headers=headers, method=method), timeout=55) as response:
-            return json.load(response)
+            content = response.read()
+            return json.loads(content) if content else {}
     except HTTPError as error:
         if error.code == 404 and method == 'GET':
             return None
@@ -91,8 +92,7 @@ def migrate(old_tag, version, commit, build):
         return
     current = commit_for(tag)
     if current is None:
-        # GITHUB_TOKEN-created refs do not trigger another release build.
-        api('/git/refs', 'POST', {'ref': f'refs/tags/{tag}', 'sha': commit})
+        raise ValueError(f'Create historical tag {tag} through Git before migrating releases.')
     elif current != commit:
         raise ValueError(f'Refusing to move existing tag {tag}.')
     with tempfile.TemporaryDirectory(prefix='harbor-release-migration-') as directory:
@@ -138,11 +138,26 @@ def migrate(old_tag, version, commit, build):
     print(f'Published {tag}; preserved {old_tag} and all original assets.', flush=True)
 
 
+def cancel_duplicate_builds():
+    # Tag aliases reuse verified binaries. Cancel only the release builds caused
+    # by these exact aliases and commits, never unrelated CI or future versions.
+    expected = {f'v{version}': commit for old_tag, version, commit, _ in MIGRATIONS
+                if old_tag != f'v{version}'}
+    runs = api('/actions/workflows/release.yml/runs?per_page=30')['workflow_runs']
+    for run in runs:
+        if (run['event'] == 'push' and run['status'] != 'completed'
+                and expected.get(run['head_branch']) == run['head_sha']):
+            api(f'/actions/runs/{run["id"]}/cancel', 'POST')
+            print(f'Canceled redundant rebuild for {run["head_branch"]}.', flush=True)
+
+
 def main():
     if os.environ.get('GITHUB_REPOSITORY') != REPO:
         raise ValueError('Run this migration only in the Harbor repository.')
+    cancel_duplicate_builds()
     for migration in MIGRATIONS:
         migrate(*migration)
+        cancel_duplicate_builds()
     latest = api('/releases/tags/v1.0.2-beta')
     api(f'/releases/{latest["id"]}', 'PATCH', {'make_latest': 'true'})
     if api('/releases/latest')['tag_name'] != 'v1.0.2-beta':
