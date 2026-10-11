@@ -549,7 +549,7 @@ const _configArchiveBudget = 10 * 1024 * 1024;
 class SSHStore extends ChangeNotifier {
   HarborPreferences preferences = const HarborPreferences();
   bool preferencesLoaded = false;
-  String applicationVersion = '1.0.2';
+  String applicationVersion = '1.0.3';
   void notifyUpdateListeners() => notifyListeners();
   HarborUpdate? availableUpdate;
   int? pendingUpdatePrompt;

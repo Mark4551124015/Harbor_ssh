@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3-beta.1
+
+### Fixed
+
+- Use English labels for all proxy modes and hide the SSH and update proxy switches when Off is selected. Switching modes preserves the saved switch preferences.
+- Add consistent padding inside Port Mapping group drop highlights so the border has comfortable spacing around the expand/collapse arrow, without shifting the header during dragging.
+
 ## 1.0.2-beta
 
 ### Added
