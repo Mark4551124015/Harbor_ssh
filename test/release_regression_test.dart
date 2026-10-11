@@ -49,7 +49,12 @@ void main() {
       expect(store.hosts.single.localForwards, ['8080:localhost:80']);
       store.hosts.single.hostName = 'new.test';
       await store.saveConfig();
-      expect(await File('${config.path}.bak').readAsString(), original);
+      // The save keeps a copy of the file it replaced.
+      final archives = Directory(
+        '${config.parent.path}/config_bk',
+      ).listSync().whereType<File>().toList();
+      expect(archives, hasLength(1));
+      expect(await archives.single.readAsString(), original);
       final restored = SSHStore(load: false, configFile: config);
       await restored.loadConfig();
       expect(restored.hosts.single.hostName, 'new.test');

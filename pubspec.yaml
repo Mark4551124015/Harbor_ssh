@@ -9,14 +9,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # 核心 UI 库，打造原生 macOS 体验
+  # Core UI library for a native macOS feel
   macos_ui: ^2.0.0
-  # 状态管理
+  # State management
   provider: ^6.0.0
-  # 路径处理
+  # Path handling
   path_provider: ^2.1.1
   path: ^1.8.3
-  # 简单的图标库
+  # Icon font
   cupertino_icons: ^1.0.2
 
 dev_dependencies:
@@ -26,5 +26,6 @@ dev_dependencies:
 
 flutter:
   assets:
+    - LICENSE
     - assets/brand/harbor-mark.png
   uses-material-design: true

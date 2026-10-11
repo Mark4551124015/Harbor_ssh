@@ -94,6 +94,14 @@ void main() {
       );
       if (!dark) await tester.tap(find.byKey(const ValueKey('open-settings')));
       await tester.pumpAndSettle();
+      // Asset images decode asynchronously; capture only once every one on screen
+      // has finished, otherwise the first frame is written without them.
+      await tester.runAsync(() async {
+        for (final element in find.byType(Image).evaluate()) {
+          await precacheImage((element.widget as Image).image, element);
+        }
+      });
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       final render =
           boundary.currentContext!.findRenderObject() as RenderRepaintBoundary;

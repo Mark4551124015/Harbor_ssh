@@ -25,7 +25,7 @@ void main() {
   runApp(const AppRoot());
 }
 
-// 定义一个强制不显示滚动条的 ScrollBehavior
+// A scroll behavior that never renders a scrollbar.
 class NoScrollbarBehavior extends MacosScrollBehavior {
   const NoScrollbarBehavior();
 
@@ -35,7 +35,7 @@ class NoScrollbarBehavior extends MacosScrollBehavior {
     Widget child,
     ScrollableDetails details,
   ) {
-    return child; // 直接返回 child，不包裹 Scrollbar
+    return child; // Return the child as-is, without wrapping it in a Scrollbar.
   }
 }
 
@@ -256,7 +256,7 @@ class _HarborResourceWarmupState extends State<_HarborResourceWarmup> {
 }
 
 // ----------------------
-// 2. Data Model (保持不变)
+// 2. Data Model
 // ----------------------
 
 class SSHHost {
@@ -341,7 +341,7 @@ class SSHHost {
 }
 
 // ----------------------
-// 3. Logic Core (Store) (保持不变)
+// 3. Logic Core (Store)
 // ----------------------
 
 class ManagedMapping {
@@ -368,6 +368,12 @@ class ManagedMapping {
     value: data['value'] as String,
   );
 }
+
+/// Folder of timestamped config copies, kept beside the SSH config itself.
+const _configArchiveFolder = 'config_bk';
+
+/// Total size the archive folder may reach before the oldest copies are dropped.
+const _configArchiveBudget = 10 * 1024 * 1024;
 
 class SSHStore extends ChangeNotifier {
   HarborPreferences preferences = const HarborPreferences();
@@ -692,15 +698,25 @@ class SSHStore extends ChangeNotifier {
   File? _metadataFile;
   Future<void> _pendingMetadata = Future.value();
   String? metadataError;
+  String? configError;
+  final List<File>? legacyMetadataFiles;
+  final bool _usesDefaultMetadata;
+
+  /// Bytes the `config_bk` folder may occupy before the oldest copies are
+  /// dropped. Tests set this low; the application uses the default.
+  final int archiveBudget;
 
   SSHStore({
     bool load = true,
     File? metadataFile,
+    this.legacyMetadataFiles,
     this.configFile,
+    this.archiveBudget = _configArchiveBudget,
     Future<Process> Function(String, List<String>)? processStarter,
   }) : processStarter =
            processStarter ??
            ((executable, arguments) => Process.start(executable, arguments)),
+       _usesDefaultMetadata = metadataFile == null,
        _metadataFile = metadataFile {
     if (load) {
       initialize();
@@ -714,6 +730,92 @@ class SSHStore extends ChangeNotifier {
     await Future.wait([loadConfig(), loadApplicationInfo()]);
   }
 
+  /// Copies the current config into `<config folder>/config_bk` before a write,
+  /// naming each copy after the moment it was taken.
+  ///
+  /// The folder is trimmed to [archiveBudget] bytes, oldest first, so a config fed
+  /// by hand can be walked back through its own history.
+  Future<void> _archiveConfig(File configPath) async {
+    try {
+      if (!await configPath.exists()) return;
+      final bytes = await configPath.readAsBytes();
+      final directory = Directory(
+        p.join(configPath.parent.path, _configArchiveFolder),
+      );
+      await directory.create(recursive: true);
+      final archives = await _configArchives(directory);
+      if (archives.isNotEmpty &&
+          _sameBytes(await archives.last.readAsBytes(), bytes)) {
+        // Nothing changed since the previous copy; do not spend budget on it.
+        return;
+      }
+      final stamp = _archiveStamp(DateTime.now());
+      final prefix = 'config-$stamp-';
+      final taken = archives
+          .where((archive) => p.basename(archive.path).startsWith(prefix))
+          .length;
+      final archive = File(
+        p.join(
+          directory.path,
+          '$prefix${(taken + 1).toString().padLeft(3, '0')}.bak',
+        ),
+      );
+      await archive.writeAsBytes(bytes, flush: true);
+      await _trimConfigArchives(directory, archives..add(archive));
+    } catch (e) {
+      // A failed archive must not block the save it precedes.
+      debugPrint('Could not archive the SSH config: $e');
+    }
+  }
+
+  /// Archives in chronological order. The fixed-width timestamp in the name keeps
+  /// lexicographic order equal to the order they were taken.
+  Future<List<File>> _configArchives(Directory directory) async {
+    final archives = <File>[];
+    await for (final entity in directory.list()) {
+      if (entity is! File) continue;
+      final name = p.basename(entity.path);
+      if (name.startsWith('config-') && name.endsWith('.bak')) {
+        archives.add(entity);
+      }
+    }
+    return archives..sort((a, b) => a.path.compareTo(b.path));
+  }
+
+  Future<void> _trimConfigArchives(
+    Directory directory,
+    List<File> archives,
+  ) async {
+    var total = 0;
+    for (final archive in archives) {
+      total += await archive.length();
+    }
+    // Always keep the newest copy, even when it alone exceeds the budget.
+    for (
+      var index = 0;
+      total > archiveBudget && index < archives.length - 1;
+      index++
+    ) {
+      final size = await archives[index].length();
+      await archives[index].delete();
+      total -= size;
+    }
+  }
+
+  String _archiveStamp(DateTime at) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${at.year}${two(at.month)}${two(at.day)}'
+        '-${two(at.hour)}${two(at.minute)}${two(at.second)}';
+  }
+
+  bool _sameBytes(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      if (a[index] != b[index]) return false;
+    }
+    return true;
+  }
+
   String groupFor(SSHHost host) => hostGroups[host.hostAlias] ?? 'Ungrouped';
   bool isFavorite(SSHHost host) => favorites.contains(host.hostAlias);
 
@@ -725,6 +827,65 @@ class SSHStore extends ChangeNotifier {
           'host-library.json',
         ),
       );
+      if (!await _metadataFile!.exists()) {
+        final legacyFiles =
+            legacyMetadataFiles ??
+            (_usesDefaultMetadata
+                ? [
+                    File(
+                      p.join(
+                        _metadataFile!.parent.parent.path,
+                        'com.example.macosSshTool',
+                        'host-library.json',
+                      ),
+                    ),
+                  ]
+                : <File>[]);
+        for (final legacy in legacyFiles) {
+          if (!await legacy.exists()) continue;
+          final contents = await legacy.readAsString();
+          // Validate before copying; never replace the user's old library.
+          final decoded = jsonDecode(contents);
+          if (decoded is! Map<String, dynamic>) {
+            throw const FormatException('Old host library is not an object.');
+          }
+          // Validate the shape of collections before adopting old data.
+          HarborPreferences.fromJson(decoded['preferences']);
+          for (final key in [
+            'mappings',
+            'favorites',
+            'sectionOrder',
+            'groupNames',
+            'recent',
+          ]) {
+            if (decoded[key] != null && decoded[key] is! List) {
+              throw FormatException('Invalid old library field: $key');
+            }
+          }
+          for (final key in [
+            'hostOrder',
+            'groups',
+            'icons',
+            'groupIcons',
+            'groupColors',
+          ]) {
+            if (decoded[key] != null && decoded[key] is! Map) {
+              throw FormatException('Invalid old library field: $key');
+            }
+          }
+          await _metadataFile!.parent.create(recursive: true);
+          final temporary = File('${_metadataFile!.path}.migration.tmp');
+          try {
+            await temporary.writeAsString(contents, flush: true);
+            if (!await _metadataFile!.exists()) {
+              await temporary.rename(_metadataFile!.path);
+            }
+          } finally {
+            if (await temporary.exists()) await temporary.delete();
+          }
+          break;
+        }
+      }
       if (await _metadataFile!.exists()) {
         final data =
             jsonDecode(await _metadataFile!.readAsString())
@@ -977,15 +1138,16 @@ class SSHStore extends ChangeNotifier {
     final home = Platform.environment['HOME'];
     final configPath = configFile ?? File('$home/.ssh/config');
 
-    if (!await configPath.exists()) {
-      hosts = [];
-      _dirtyHosts.clear();
-      _savedHostStates.clear();
-      _applyFilter();
-      return;
-    }
-
     try {
+      if (!await configPath.exists()) {
+        hosts = [];
+        _dirtyHosts.clear();
+        _savedHostStates.clear();
+        configError = null;
+        _applyFilter();
+        return;
+      }
+
       final lines = await configPath.readAsLines();
       hosts = [];
       SSHHost? current;
@@ -1032,15 +1194,10 @@ class SSHStore extends ChangeNotifier {
               }
               current.localForwards.add(normalized);
               break;
-            case 'connecttimeout':
-            case 'compression':
-            case 'serveraliveinterval':
-            case 'serveralivecountmax':
-            case 'exitonforwardfailure':
-            case 'stricthostkeychecking':
-            case 'userknownhostsfile':
-            case 'forwardx11':
-              current.advancedOptions[parts[0]] = value;
+            default:
+              if (harborSSHOption(key) != null) {
+                current.advancedOptions[parts[0]] = value;
+              }
               break;
           }
         }
@@ -1050,13 +1207,15 @@ class SSHStore extends ChangeNotifier {
       _savedHostStates
         ..clear()
         ..addEntries(hosts.map((host) => MapEntry(host, _hostState(host))));
+      configError = null;
       _applyFilter();
     } catch (e) {
-      debugPrint("Error loading config: $e");
+      configError = 'Could not load SSH config: $e';
+      notifyListeners();
     }
   }
 
-  Future<void> saveConfig() async {
+  Future<bool> saveConfig() async {
     final home = Platform.environment['HOME'];
     final configPath = configFile ?? File('$home/.ssh/config');
 
@@ -1071,9 +1230,7 @@ class SSHStore extends ChangeNotifier {
       if (!await configPath.parent.exists()) {
         await configPath.parent.create(recursive: true);
       }
-      if (await configPath.exists()) {
-        await configPath.copy('${configPath.path}.bak');
-      }
+      await _archiveConfig(configPath);
       await configPath.writeAsString(buffer.toString());
 
       _savedHostStates
@@ -1083,9 +1240,13 @@ class SSHStore extends ChangeNotifier {
       _dirtyHosts.removeWhere(
         (alias) => savedStates.keys.any((host) => host.hostAlias == alias),
       );
+      configError = null;
       notifyListeners();
+      return true;
     } catch (e) {
-      debugPrint("Error saving config: $e");
+      configError = 'Could not save SSH config: $e';
+      notifyListeners();
+      return false;
     }
   }
 
@@ -1985,7 +2146,7 @@ class _MainWindowState extends State<MainWindow>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'harbor',
+                                  'Harbor',
                                   style: TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.w700,
@@ -2103,11 +2264,12 @@ class _MainWindowState extends State<MainWindow>
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (store.metadataError != null)
+                      if (store.configError != null ||
+                          store.metadataError != null)
                         Padding(
                           padding: const EdgeInsets.all(12),
                           child: Text(
-                            store.metadataError!,
+                            store.configError ?? store.metadataError!,
                             style: const TextStyle(
                               fontSize: 11,
                               color: HarborColors.copper,
@@ -2647,8 +2809,10 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
             label: "Save & Connect",
             onPressed: () async {
               Navigator.of(context, rootNavigator: true).pop();
-              await store.saveConfig();
-              if (context.mounted) _performConnection(context, store);
+              final saved = await store.saveConfig();
+              if (saved && !store.isDirty(host.hostAlias) && context.mounted) {
+                _performConnection(context, store);
+              }
             },
           ),
           secondaryButton: HarborButton(
