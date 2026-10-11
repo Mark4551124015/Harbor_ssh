@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add canonical release tags while preserving every existing download URL."""
+"""Validate canonical releases and remove superseded release entries."""
 import hashlib
 import json
 import os
@@ -80,89 +80,63 @@ def validate_assets(files, version, commit, build):
         raise ValueError('Release manifest does not match the original source.')
 
 
-def migrate(old_tag, version, commit, build):
-    tag = f'v{version}'
-    source = api('/releases/tags/' + quote(old_tag, safe=''))
-    if source is None or source['draft'] or commit_for(old_tag) != commit:
-        raise ValueError(f'Original release/tag does not match: {old_tag}')
-    notes = release_notes_for(version)
-    if tag == old_tag:
-        api(f'/releases/{source["id"]}', 'PATCH', {'name': version, 'body': notes, 'make_latest': 'false'})
-        print(f'Normalized title: {tag}', flush=True)
-        return
-    current = commit_for(tag)
-    if current is None:
-        raise ValueError(f'Create historical tag {tag} through Git before migrating releases.')
-    elif current != commit:
-        raise ValueError(f'Refusing to move existing tag {tag}.')
-    with tempfile.TemporaryDirectory(prefix='harbor-release-migration-') as directory:
-        files = {}
-        for asset in source['assets']:
-            name = asset['name']
-            if Path(name).name != name:
-                raise ValueError('Invalid asset filename.')
-            url = asset['browser_download_url']
-            if not url.startswith(f'https://github.com/{REPO}/releases/download/{old_tag}/'):
-                raise ValueError('Invalid original download URL.')
-            path = Path(directory) / name
-            with urlopen(url, timeout=55) as response, path.open('wb') as output:
-                while chunk := response.read(1024 * 1024):
-                    output.write(chunk)
-            files[name] = path
-        validate_assets(files, version, commit, build)
+def matching_assets(source, target, version):
+    expected = {
+        f'Harbor-{version}-macos-universal-unsigned.zip',
+        f'Harbor-{version}-macos-universal-unsigned.dmg',
+        'release-manifest.json', 'SHA256SUMS.txt',
+    }
+    original = {asset['name']: asset for asset in source['assets']}
+    canonical = {asset['name']: asset for asset in target['assets']}
+    if set(original) != expected or set(canonical) != expected:
+        raise ValueError('Both releases must contain every expected asset.')
+    for name in expected:
+        digest = original[name].get('digest')
+        if (not isinstance(digest, str) or not digest.startswith('sha256:')
+                or len(digest) != 71 or digest != canonical[name].get('digest')
+                or original[name]['size'] != canonical[name]['size']):
+            raise ValueError(f'Canonical asset does not match: {name}')
+
+
+def normalize(check_only=False):
+    verified = []
+    # Validate every destination before changing or deleting any release.
+    for old_tag, version, commit, _ in MIGRATIONS:
+        tag = f'v{version}'
         target = api('/releases/tags/' + quote(tag, safe=''))
-        if target is None:
-            target = api('/releases', 'POST', {
-                'tag_name': tag, 'name': version, 'body': notes, 'draft': True,
-                'prerelease': source['prerelease'], 'make_latest': 'false',
-            })
-        existing = {asset['name']: asset for asset in target['assets']}
-        for name, path in files.items():
-            if name in existing:
-                # Validate existing bytes before treating a retry as complete.
-                with urlopen(existing[name]['browser_download_url'], timeout=55) as response:
-                    if hashlib.sha256(response.read()).digest() != hashlib.sha256(path.read_bytes()).digest():
-                        raise ValueError(f'Refusing to replace existing asset {name}.')
-                continue
-            api(target['upload_url'].split('{')[0] + '?name=' + quote(name, safe=''),
-                'POST', binary=path.read_bytes())
+        if target is None or target['draft'] or commit_for(tag) != commit:
+            raise ValueError(f'Canonical release/tag is not ready: {tag}')
+        source = None if old_tag == tag else api('/releases/tags/' + quote(old_tag, safe=''))
+        if source is not None:
+            if source['draft'] or commit_for(old_tag) != commit:
+                raise ValueError(f'Original release/tag does not match: {old_tag}')
+            matching_assets(source, target, version)
+        notes = release_notes_for(version)
+        verified.append((target, source, version, notes))
+        print(f'Verified canonical release and original assets: {tag}', flush=True)
+    if check_only:
+        return
+    for target, source, version, notes in verified:
         api(f'/releases/{target["id"]}', 'PATCH', {
-            'name': version, 'body': notes, 'draft': False,
-            'prerelease': source['prerelease'], 'make_latest': 'false',
+            'name': version, 'body': notes,
+            'make_latest': 'true' if version == '1.0.2-beta' else 'false',
         })
-    legacy_notes = (f'This is a legacy download entry. Use [{version}]'
-                    f'(https://github.com/{REPO}/releases/tag/{tag}) for the canonical release.\n\n' + notes)
-    api(f'/releases/{source["id"]}', 'PATCH', {
-        'name': f'{version} (legacy links)', 'body': legacy_notes, 'make_latest': 'false',
-    })
-    print(f'Published {tag}; preserved {old_tag} and all original assets.', flush=True)
-
-
-def cancel_duplicate_builds():
-    # Tag aliases reuse verified binaries. Cancel only the release builds caused
-    # by these exact aliases and commits, never unrelated CI or future versions.
-    expected = {f'v{version}': commit for old_tag, version, commit, _ in MIGRATIONS
-                if old_tag != f'v{version}'}
-    runs = api('/actions/workflows/release.yml/runs?per_page=30')['workflow_runs']
-    for run in runs:
-        if (run['event'] == 'push' and run['status'] != 'completed'
-                and expected.get(run['head_branch']) == run['head_sha']):
-            api(f'/actions/runs/{run["id"]}/cancel', 'POST')
-            print(f'Canceled redundant rebuild for {run["head_branch"]}.', flush=True)
-
-
-def main():
-    if os.environ.get('GITHUB_REPOSITORY') != REPO:
-        raise ValueError('Run this migration only in the Harbor repository.')
-    cancel_duplicate_builds()
-    for migration in MIGRATIONS:
-        migrate(*migration)
-        cancel_duplicate_builds()
-    latest = api('/releases/tags/v1.0.2-beta')
-    api(f'/releases/{latest["id"]}', 'PATCH', {'make_latest': 'true'})
+        if source is not None:
+            api(f'/releases/{source["id"]}', 'DELETE')
+            print(f'Removed superseded release: {source["tag_name"]}', flush=True)
     if api('/releases/latest')['tag_name'] != 'v1.0.2-beta':
         raise ValueError('Canonical current release is not Latest.')
     print('Latest: v1.0.2-beta', flush=True)
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check', action='store_true', help='Validate without changing any releases.')
+    args = parser.parse_args()
+    if os.environ.get('GITHUB_REPOSITORY') != REPO:
+        raise ValueError('Run this migration only in the Harbor repository.')
+    normalize(check_only=args.check)
 
 
 if __name__ == '__main__':

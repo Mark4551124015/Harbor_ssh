@@ -121,8 +121,8 @@ python3 scripts/release.py tag
 python3 scripts/release.py preflight --tag v1.0.3-beta.1
 ```
 
-Historical releases also have canonical `v<version>` tags. Original tags and release
-assets remain as legacy download links; the canonical current release is marked Latest.
+Historical releases use the same canonical `v<version>` tags. Superseded tag formats
+and duplicate release entries have been removed; the current release is marked Latest.
 
 ## License
 

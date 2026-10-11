@@ -24,12 +24,9 @@ jobs:
         run: |
           python3 scripts/release.py notes > "$RUNNER_TEMP/release-notes.md"
           VERSION=$(python3 -c "import sys; sys.path.insert(0, 'scripts'); from release import version; print(version()[0])")
-          # Prefer canonical tags. Historical aliases are read only so existing
-          # download URLs remain valid; new releases accept only v<version>.
-          for TAG in "v$VERSION" "$VERSION" "beta-${VERSION%-beta}"; do
-            if gh release view "$TAG" --json tagName > /dev/null 2>&1; then
-              gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
-              exit 0
-            fi
-          done
+          TAG=$(python3 scripts/release.py tag)
+          if gh release view "$TAG" --json tagName > /dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+            exit 0
+          fi
           echo "No published release for $VERSION yet; notes will be included during publication."

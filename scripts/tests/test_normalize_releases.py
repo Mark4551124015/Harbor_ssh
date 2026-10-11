@@ -45,39 +45,52 @@ class MigrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             migration.validate_assets(self.files, '1.0.2-beta', 'commit', 4)
 
-    def test_wrong_original_tag_cannot_mutate_releases(self):
-        with patch.object(migration, 'api', return_value={'draft': False}) as api, \
-                patch.object(migration, 'commit_for', return_value='wrong'):
-            with self.assertRaises(ValueError):
-                migration.migrate('1.0.2-beta', '1.0.2-beta', 'commit', 4)
-            self.assertEqual(api.call_count, 1)
+    def test_asset_comparison_requires_equal_hashes_and_sizes(self):
+        names = list(self.files)
+        assets = [{'name': name, 'size': 10, 'digest': 'sha256:' + 'a' * 64} for name in names]
+        source = {'assets': assets}
+        target = {'assets': [dict(asset) for asset in assets]}
+        migration.matching_assets(source, target, '1.0.2-beta')
+        target['assets'][0]['digest'] = 'sha256:' + 'b' * 64
+        with self.assertRaises(ValueError):
+            migration.matching_assets(source, target, '1.0.2-beta')
+        target['assets'][0]['digest'] = 'sha256:' + 'a' * 64
+        target['assets'][0]['size'] = 11
+        with self.assertRaises(ValueError):
+            migration.matching_assets(source, target, '1.0.2-beta')
 
-    def test_existing_canonical_tag_cannot_be_moved(self):
-        with patch.object(migration, 'api', return_value={'draft': False}) as api, \
-                patch.object(migration, 'commit_for', side_effect=['commit', 'different']), \
+    def test_all_destinations_are_checked_before_any_deletion(self):
+        target = {'id': 1, 'draft': False}
+        source = {'id': 2, 'draft': False}
+        with patch.object(migration, 'MIGRATIONS', [
+                ('old-one', '1.0.1-beta', 'first', 3),
+                ('old-two', '1.0.2-beta', 'second', 4)]), \
+                patch.object(migration, 'api', side_effect=[target, source, None]) as api, \
+                patch.object(migration, 'commit_for', return_value='first'), \
+                patch.object(migration, 'matching_assets'), \
                 patch.object(migration, 'release_notes_for', return_value='English notes'):
             with self.assertRaises(ValueError):
-                migration.migrate('1.0.2-beta', '1.0.2-beta', 'commit', 4)
-            self.assertEqual(api.call_count, 1)
+                migration.normalize()
+            self.assertTrue(all(len(call.args) == 1 for call in api.call_args_list))
 
-    def test_cancel_only_rebuilds_for_exact_migrated_aliases(self):
-        commit = migration.MIGRATIONS[-1][2]
-        runs = {'workflow_runs': [
-            {'id': 1, 'event': 'push', 'status': 'queued', 'head_branch': 'v1.0.2-beta', 'head_sha': commit},
-            {'id': 2, 'event': 'push', 'status': 'completed', 'head_branch': 'v1.0.2-beta', 'head_sha': commit},
-            {'id': 3, 'event': 'push', 'status': 'in_progress', 'head_branch': 'main', 'head_sha': commit},
-            {'id': 4, 'event': 'push', 'status': 'queued', 'head_branch': 'v1.0.2-beta', 'head_sha': 'different'},
-        ]}
-        with patch.object(migration, 'api', return_value=runs) as api:
-            migration.cancel_duplicate_builds()
-            self.assertEqual(api.call_count, 2)
-            self.assertEqual(api.call_args.args, ('/actions/runs/1/cancel', 'POST'))
+    def test_cleanup_only_deletes_verified_superseded_release(self):
+        target = {'id': 1, 'draft': False}
+        source = {'id': 2, 'tag_name': '1.0.2-beta', 'draft': False}
+        with patch.object(migration, 'MIGRATIONS', [('1.0.2-beta', '1.0.2-beta', 'commit', 4)]), \
+                patch.object(migration, 'api', side_effect=[target, source, {}, {}, {'tag_name': 'v1.0.2-beta'}]) as api, \
+                patch.object(migration, 'commit_for', return_value='commit'), \
+                patch.object(migration, 'matching_assets') as compare, \
+                patch.object(migration, 'release_notes_for', return_value='English notes'):
+            migration.normalize()
+            compare.assert_called_once_with(source, target, '1.0.2-beta')
+            deletes = [call.args for call in api.call_args_list if len(call.args) > 1 and call.args[1] == 'DELETE']
+            self.assertEqual(deletes, [('/releases/2', 'DELETE')])
 
-    def test_already_canonical_release_only_changes_title_and_notes(self):
-        source = {'id': 7, 'draft': False, 'prerelease': True}
-        with patch.object(migration, 'api', return_value=source) as api, \
+    def test_check_mode_does_not_write(self):
+        target = {'id': 1, 'draft': False}
+        with patch.object(migration, 'MIGRATIONS', [('v1.0.0-beta.1', '1.0.0-beta.1', 'commit', 1)]), \
+                patch.object(migration, 'api', return_value=target) as api, \
                 patch.object(migration, 'commit_for', return_value='commit'), \
                 patch.object(migration, 'release_notes_for', return_value='English notes'):
-            migration.migrate('v1.0.0-beta.1', '1.0.0-beta.1', 'commit', 1)
-            self.assertEqual(api.call_args.args, ('/releases/7', 'PATCH', {
-                'name': '1.0.0-beta.1', 'body': 'English notes', 'make_latest': 'false'}))
+            migration.normalize(check_only=True)
+            self.assertEqual(api.call_count, 1)

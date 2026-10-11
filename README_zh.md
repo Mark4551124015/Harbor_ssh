@@ -115,8 +115,8 @@ python3 scripts/release.py tag
 python3 scripts/release.py preflight --tag v1.0.3-beta.1
 ```
 
-历史版本也补齐规范的 `v<版本号>` tag；原 tag 和 Release 附件作为旧链接兼容入口保留，
-当前规范版本标记为 Latest。
+历史版本也统一为 `v<版本号>` tag；旧格式 tag 和重复 Release 入口已清理，
+当前版本标记为 Latest。
 
 ## 许可证
 
