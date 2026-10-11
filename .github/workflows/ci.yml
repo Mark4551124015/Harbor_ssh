@@ -1,0 +1,61 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workflows:
+    name: Validate workflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate GitHub Actions syntax
+        run: |
+          archive=actionlint_1.7.12_linux_amd64.tar.gz
+          curl --fail --location --retry 3 "https://github.com/rhysd/actionlint/releases/download/v1.7.12/$archive" --output "$RUNNER_TEMP/$archive"
+          (cd "$RUNNER_TEMP" && sha256sum --check --ignore-missing "$GITHUB_WORKSPACE/scripts/actionlint-checksums.txt")
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck=""
+  verify:
+    name: Test and build macOS
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test tool
+      - run: flutter --no-version-check analyze --no-pub
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - run: flutter --no-version-check test --no-pub --coverage --reporter expanded
+      - run: flutter --no-version-check build macos --release --no-pub --build-name "$(python3 scripts/release.py build-name)"
+      - run: python3 scripts/release.py adhoc build/macos/Build/Products/Release/Harbor.app
+      - run: python3 scripts/release.py verify build/macos/Build/Products/Release/Harbor.app
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          if-no-files-found: warn
+      - run: python3 scripts/release.py package build/macos/Build/Products/Release/Harbor.app --output dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macOS-test-package
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14

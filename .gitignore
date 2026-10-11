@@ -46,3 +46,11 @@ app.*.map.json
 
 # Downloaded upstream projects for local reference
 /other_projects/
+
+# Release output and signing material
+/dist/
+*.p12
+*.p8
+*.keychain-db
+.env
+.env.*

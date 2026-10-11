@@ -1,0 +1,118 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, e.g. v1.0.0 or v1.0.0-beta.1
+        required: true
+        type: string
+      signed:
+        description: Developer ID signing and Apple notarization (requires secrets)
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      signed: ${{ steps.meta.outputs.signed }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+          fetch-depth: 0
+      - id: meta
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          SIGNED: ${{ (github.event_name == 'workflow_dispatch' && inputs.signed) || (github.event_name == 'push' && vars.RELEASE_SIGNING == 'true') }}
+        run: |
+          python3 scripts/release.py preflight --tag "$RELEASE_TAG" $([ "$SIGNED" = true ] && echo --official)
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "signed=$SIGNED" >> "$GITHUB_OUTPUT"
+  build:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test tool
+      - run: flutter --no-version-check analyze --no-pub
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - run: flutter --no-version-check test --no-pub --coverage --reporter expanded
+      - run: flutter --no-version-check build macos --release --no-pub --build-name "$(python3 scripts/release.py build-name)"
+      - run: python3 scripts/release.py adhoc build/macos/Build/Products/Release/Harbor.app
+      - run: python3 scripts/release.py verify build/macos/Build/Products/Release/Harbor.app
+      - name: Sign and notarize
+        if: needs.validate.outputs.signed == 'true'
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: python3 scripts/sign_macos.py build/macos/Build/Products/Release/Harbor.app
+      - name: Package
+        env:
+          SIGNED: ${{ needs.validate.outputs.signed }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          if [ "$SIGNED" = true ]; then
+            python3 scripts/release.py package build/macos/Build/Products/Release/Harbor.app --output dist --notarized
+          else
+            python3 scripts/release.py package build/macos/Build/Products/Release/Harbor.app --output dist
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+  draft:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          SIGNED: ${{ needs.validate.outputs.signed }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > existing.txt 2>/dev/null; then
+            test "$(cat existing.txt)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
+          else
+            if [ "$SIGNED" = true ]; then
+              gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "Harbor $RELEASE_TAG"
+            else
+              gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --generate-notes --title "Harbor $RELEASE_TAG (unsigned preview)"
+            fi
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          if [ "$SIGNED" != true ]; then
+            gh release edit "$RELEASE_TAG" --prerelease --title "Harbor $RELEASE_TAG (unsigned preview)"
+          fi
