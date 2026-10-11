@@ -109,9 +109,9 @@ jobs:
           python3 scripts/release.py notes > "$RUNNER_TEMP/release-notes.md"
           # Public beta builds remain eligible for the in-app updater.
           case "$RELEASE_TAG" in
-            beta-*|*-beta) PRERELEASE="--prerelease=false" ;;
-            *-*) PRERELEASE="--prerelease" ;;
-            *) PRERELEASE="--prerelease=false" ;;
+            beta-*|*-beta) PRERELEASE="--prerelease=false"; LATEST="--latest" ;;
+            *-*) PRERELEASE="--prerelease"; LATEST="" ;;
+            *) PRERELEASE="--prerelease=false"; LATEST="--latest" ;;
           esac
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > existing.txt 2>/dev/null; then
             test "$(cat existing.txt)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
@@ -121,4 +121,4 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
           # Publish only after the assets are in place, so the release is never visible empty.
-          gh release edit "$RELEASE_TAG" --draft=false $PRERELEASE
+          gh release edit "$RELEASE_TAG" --draft=false $PRERELEASE $LATEST
