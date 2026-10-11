@@ -406,10 +406,10 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
             subtitle:
                 'System follows macOS proxy settings, then environment settings.',
             control: options(prefs.proxyMode, {
-              'system': '系统代理',
+              'system': 'System',
               'socks': 'SOCKS5',
               'http': 'HTTP',
-              'off': '关闭',
+              'off': 'Off',
             }, (value) => update(prefs.copyWith(proxyMode: value))),
           ),
           if (prefs.proxyMode == 'socks' || prefs.proxyMode == 'http') ...[
@@ -457,25 +457,27 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
               ),
             ),
           ],
-          _HarborSettingRow(
-            title: 'SSH uses proxy',
-            subtitle:
-                'For new sessions and mappings; a host’s custom ProxyCommand takes precedence.',
-            control: toggle(
-              'SSH uses proxy',
-              prefs.sshUseProxy,
-              (value) => update(prefs.copyWith(sshUseProxy: value)),
+          if (prefs.proxyMode != 'off') ...[
+            _HarborSettingRow(
+              title: 'SSH uses proxy',
+              subtitle:
+                  'For new sessions and mappings; a host’s custom ProxyCommand takes precedence.',
+              control: toggle(
+                'SSH uses proxy',
+                prefs.sshUseProxy,
+                (value) => update(prefs.copyWith(sshUseProxy: value)),
+              ),
             ),
-          ),
-          _HarborSettingRow(
-            title: 'Updates use proxy',
-            subtitle: 'Applies to version checks and update downloads.',
-            control: toggle(
-              'Updates use proxy',
-              prefs.updatesUseProxy,
-              (value) => update(prefs.copyWith(updatesUseProxy: value)),
+            _HarborSettingRow(
+              title: 'Updates use proxy',
+              subtitle: 'Applies to version checks and update downloads.',
+              control: toggle(
+                'Updates use proxy',
+                prefs.updatesUseProxy,
+                (value) => update(prefs.copyWith(updatesUseProxy: value)),
+              ),
             ),
-          ),
+          ],
         ],
       ),
       _HarborSettingsSection(

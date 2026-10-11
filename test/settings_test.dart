@@ -14,6 +14,47 @@ class SettingsMemoryStore extends SSHStore {
 }
 
 void main() {
+  testWidgets('Proxy labels are English and Off hides per-service switches', (
+    tester,
+  ) async {
+    final store = SettingsMemoryStore();
+    addTearDown(store.dispose);
+    store.preferences = const HarborPreferences(
+      sshUseProxy: true,
+      updatesUseProxy: false,
+    );
+    await tester.binding.setSurfaceSize(const Size(1040, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SSHStore>.value(
+        value: store,
+        child: const HarborApplication(home: HarborSettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Proxy').first);
+    await tester.pumpAndSettle();
+    expect(find.text('System'), findsOneWidget);
+    expect(find.text('系统代理'), findsNothing);
+    expect(find.text('关闭'), findsNothing);
+    expect(find.text('SSH uses proxy'), findsOneWidget);
+    expect(find.text('Updates use proxy'), findsOneWidget);
+    await tester.tap(find.text('Off'));
+    await tester.pumpAndSettle();
+    expect(store.preferences.proxyMode, 'off');
+    expect(find.text('SSH uses proxy'), findsNothing);
+    expect(find.text('Updates use proxy'), findsNothing);
+    expect(find.byType(CupertinoSwitch), findsNothing);
+    await tester.tap(find.text('System'));
+    await tester.pumpAndSettle();
+    expect(store.preferences.proxyMode, 'system');
+    expect(find.text('SSH uses proxy'), findsOneWidget);
+    expect(find.text('Updates use proxy'), findsOneWidget);
+    expect(store.preferences.sshUseProxy, isTrue);
+    expect(store.preferences.updatesUseProxy, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'Settings search finds full rows across categories and highlights matches',
     (tester) async {

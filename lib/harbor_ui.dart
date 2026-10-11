@@ -4109,6 +4109,7 @@ class _HarborForwardingPageState extends State<HarborForwardingPage>
     return AnimatedContainer(
       key: _groupKeys.putIfAbsent(group, GlobalKey.new),
       duration: harborMotion(context, 160),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: highlighted
             ? HarborColors.of(context).dropTint
