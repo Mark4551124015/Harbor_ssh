@@ -19,6 +19,12 @@ class HarborPreferences {
   final int keepAlive;
   final bool recordRecent;
   final bool autoCheckUpdates;
+  final int ignoredUpdateBuild;
+  final String proxyMode;
+  final String proxyHost;
+  final int proxyPort;
+  final bool sshUseProxy;
+  final bool updatesUseProxy;
   const HarborPreferences({
     this.theme = ThemeMode.system,
     this.accent = 'Copper',
@@ -30,6 +36,12 @@ class HarborPreferences {
     this.keepAlive = 30,
     this.recordRecent = true,
     this.autoCheckUpdates = true,
+    this.ignoredUpdateBuild = 0,
+    this.proxyMode = 'system',
+    this.proxyHost = '127.0.0.1',
+    this.proxyPort = 7899,
+    this.sshUseProxy = false,
+    this.updatesUseProxy = true,
   });
   factory HarborPreferences.fromJson(dynamic value) {
     final data = value is Map ? value : const {};
@@ -60,6 +72,24 @@ class HarborPreferences {
           : 30,
       recordRecent: flag('recordRecent', true),
       autoCheckUpdates: flag('autoCheckUpdates', true),
+      ignoredUpdateBuild:
+          data['ignoredUpdateBuild'] is int && data['ignoredUpdateBuild'] > 0
+          ? data['ignoredUpdateBuild'] as int
+          : 0,
+      proxyMode: ['system', 'socks', 'http', 'off'].contains(data['proxyMode'])
+          ? data['proxyMode'] as String
+          : 'system',
+      proxyHost: data['proxyHost'] is String
+          ? data['proxyHost'] as String
+          : '127.0.0.1',
+      proxyPort:
+          data['proxyPort'] is int &&
+              data['proxyPort'] > 0 &&
+              data['proxyPort'] <= 65535
+          ? data['proxyPort'] as int
+          : 7899,
+      sshUseProxy: flag('sshUseProxy', false),
+      updatesUseProxy: flag('updatesUseProxy', true),
     );
   }
   HarborPreferences copyWith({
@@ -73,6 +103,12 @@ class HarborPreferences {
     int? keepAlive,
     bool? recordRecent,
     bool? autoCheckUpdates,
+    int? ignoredUpdateBuild,
+    String? proxyMode,
+    String? proxyHost,
+    int? proxyPort,
+    bool? sshUseProxy,
+    bool? updatesUseProxy,
   }) => HarborPreferences(
     theme: theme ?? this.theme,
     accent: accent ?? this.accent,
@@ -84,6 +120,12 @@ class HarborPreferences {
     keepAlive: keepAlive ?? this.keepAlive,
     recordRecent: recordRecent ?? this.recordRecent,
     autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
+    ignoredUpdateBuild: ignoredUpdateBuild ?? this.ignoredUpdateBuild,
+    proxyMode: proxyMode ?? this.proxyMode,
+    proxyHost: proxyHost ?? this.proxyHost,
+    proxyPort: proxyPort ?? this.proxyPort,
+    sshUseProxy: sshUseProxy ?? this.sshUseProxy,
+    updatesUseProxy: updatesUseProxy ?? this.updatesUseProxy,
   );
   Map<String, dynamic> toJson() => {
     'theme': theme.name,
@@ -96,6 +138,12 @@ class HarborPreferences {
     'keepAlive': keepAlive,
     'recordRecent': recordRecent,
     'autoCheckUpdates': autoCheckUpdates,
+    'ignoredUpdateBuild': ignoredUpdateBuild,
+    'proxyMode': proxyMode,
+    'proxyHost': proxyHost,
+    'proxyPort': proxyPort,
+    'sshUseProxy': sshUseProxy,
+    'updatesUseProxy': updatesUseProxy,
   };
 }
 
@@ -346,6 +394,87 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
               30: '30s',
               60: '60s',
             }, (value) => update(prefs.copyWith(keepAlive: value))),
+          ),
+        ],
+      ),
+      _HarborSettingsSection(
+        title: 'Proxy',
+        icon: CupertinoIcons.globe,
+        children: [
+          _HarborSettingRow(
+            title: 'Proxy mode',
+            subtitle:
+                'System follows macOS proxy settings, then environment settings.',
+            control: options(prefs.proxyMode, {
+              'system': '系统代理',
+              'socks': 'SOCKS5',
+              'http': 'HTTP',
+              'off': '关闭',
+            }, (value) => update(prefs.copyWith(proxyMode: value))),
+          ),
+          if (prefs.proxyMode == 'socks' || prefs.proxyMode == 'http') ...[
+            _HarborSettingRow(
+              title: 'Proxy host',
+              subtitle: 'Hostname or IP address.',
+              control: SizedBox(
+                width: 250,
+                child: HarborTextField(
+                  key: const ValueKey('proxy-host'),
+                  initialValue: prefs.proxyHost,
+                  placeholder: '127.0.0.1',
+                  validator: (value) =>
+                      RegExp(r'^[a-zA-Z0-9_.:-]+$').hasMatch(value.trim()) &&
+                          !value.trim().startsWith('-')
+                      ? null
+                      : 'Enter a hostname or IP address.',
+                  onChanged: (value) =>
+                      update(prefs.copyWith(proxyHost: value.trim())),
+                ),
+              ),
+            ),
+            _HarborSettingRow(
+              title: 'Proxy port',
+              subtitle: 'Port number from 1 to 65535.',
+              control: SizedBox(
+                width: 120,
+                child: HarborTextField(
+                  key: const ValueKey('proxy-port'),
+                  initialValue: '${prefs.proxyPort}',
+                  placeholder: '7899',
+                  validator: (value) {
+                    final port = int.tryParse(value);
+                    return port != null && port > 0 && port <= 65535
+                        ? null
+                        : 'Invalid port.';
+                  },
+                  onChanged: (value) {
+                    final port = int.tryParse(value);
+                    if (port != null && port > 0 && port <= 65535) {
+                      update(prefs.copyWith(proxyPort: port));
+                    }
+                  },
+                ),
+              ),
+            ),
+          ],
+          _HarborSettingRow(
+            title: 'SSH uses proxy',
+            subtitle:
+                'For new sessions and mappings; a host’s custom ProxyCommand takes precedence.',
+            control: toggle(
+              'SSH uses proxy',
+              prefs.sshUseProxy,
+              (value) => update(prefs.copyWith(sshUseProxy: value)),
+            ),
+          ),
+          _HarborSettingRow(
+            title: 'Updates use proxy',
+            subtitle: 'Applies to version checks and update downloads.',
+            control: toggle(
+              'Updates use proxy',
+              prefs.updatesUseProxy,
+              (value) => update(prefs.copyWith(updatesUseProxy: value)),
+            ),
           ),
         ],
       ),
@@ -670,6 +799,7 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
                   'All',
                   'Appearance',
                   'Connections',
+                  'Proxy',
                   'Data & privacy',
                   'Keyboard shortcuts',
                   'About',
@@ -881,6 +1011,12 @@ const _settingsAliases = <String, String>{
   'Data & privacy': '数据 隐私',
   'Keyboard shortcuts': '快捷键 键盘',
   'About': '关于',
+  'Proxy': '代理 网络 SOCKS HTTP',
+  'Proxy mode': '代理模式 系统代理 关闭',
+  'Proxy host': '代理地址 主机',
+  'Proxy port': '代理端口',
+  'SSH uses proxy': 'SSH走代理',
+  'Updates use proxy': '更新走代理',
   'Theme': '主题 外观 system light dark 浅色 深色 系统',
   'Accent color': '强调色 颜色 copper teal blue violet rose',
   'Reduce motion': '减少 动画 animation motion accessibility 辅助功能',

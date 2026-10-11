@@ -49,6 +49,21 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.preflight('beta-1.0.2', root=self.root)
 
+    def test_public_beta_suffix_tag_matches_version(self):
+        (self.root / 'pubspec.yaml').write_text('version: 1.0.2-beta+4\n')
+        self.assertEqual(release.preflight('1.0.2-beta', root=self.root), ('1.0.2-beta', '4'))
+        with self.assertRaises(ValueError):
+            release.preflight('1.0.3-beta', root=self.root)
+
+    def test_release_notes_match_exact_version_only(self):
+        (self.root / 'CHANGELOG.md').write_text(
+            '# Changelog\n\n## 1.2.3\n\n### Added\n\n- Current changes.\n\n'
+            '## 1.2.2\n\n- Old changes.\n')
+        self.assertEqual(release.release_notes(self.root), '### Added\n\n- Current changes.\n')
+        (self.root / 'pubspec.yaml').write_text('version: 1.2.4+5\n')
+        with self.assertRaises(ValueError):
+            release.release_notes(self.root)
+
     def test_checksums_are_deterministic_and_detect_changes(self):
         first, second = self.root / 'a.zip', self.root / 'b.dmg'
         first.write_bytes(b'first')

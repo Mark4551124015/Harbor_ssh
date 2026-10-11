@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:socks5_proxy/socks_client.dart';
 import 'package:flutter/physics.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -13,9 +14,11 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 part 'harbor_ui.dart';
+part 'mapping_interactions.dart';
 part 'key_management.dart';
 part 'settings.dart';
 part 'updates.dart';
+part 'proxy.dart';
 part 'ssh_activity.dart';
 part 'advanced_options.dart';
 
@@ -197,15 +200,18 @@ class _HarborUpdateNotice extends StatelessWidget {
   const _HarborUpdateNotice({required this.child});
   @override
   Widget build(BuildContext context) {
-    final update = context.select<SSHStore, HarborUpdate?>(
-      (store) => store.availableUpdate,
-    );
+    final store = context.watch<SSHStore>();
+    final update = store.availableUpdate;
     final colors = HarborColors.of(context);
     return Stack(
       fit: StackFit.expand,
       children: [
         child,
-        if (update != null)
+        if (update != null &&
+            (store.updateBusy ||
+                store.updateError ||
+                (update.build != store.preferences.ignoredUpdateBuild &&
+                    update.build != store.skippedUpdateBuild)))
           Positioned(
             top: 44,
             right: 24,
@@ -219,7 +225,9 @@ class _HarborUpdateNotice extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  '${update.version} is available.\nInstall from Settings → About.',
+                  store.updateBusy || store.updateError
+                      ? store.updateStatus
+                      : '${update.version} is available.\nInstall from Settings → About.',
                   style: TextStyle(
                     color: colors.text,
                     fontSize: 12,
@@ -399,6 +407,7 @@ class SSHHost {
   String proxyJump;
 
   List<String> localForwards;
+  List<String> remoteForwards;
   String dynamicForward; // SOCKS5
 
   Map<String, String> advancedOptions;
@@ -412,8 +421,10 @@ class SSHHost {
     this.proxyJump = '',
     this.dynamicForward = '',
     List<String>? localForwards,
+    List<String>? remoteForwards,
     Map<String, String>? advancedOptions,
   }) : localForwards = localForwards ?? [],
+       remoteForwards = remoteForwards ?? [],
        advancedOptions = advancedOptions ?? {};
 
   String toConfigBlock() {
@@ -437,6 +448,10 @@ class SSHHost {
       }
     }
 
+    for (final forward in remoteForwards) {
+      buffer.writeln('  RemoteForward ${forward.replaceFirst(':', ' ')}');
+    }
+
     advancedOptions.forEach((k, v) {
       buffer.writeln('  $k $v');
     });
@@ -444,12 +459,13 @@ class SSHHost {
     return buffer.toString();
   }
 
-  String getPreviewCommand() {
+  String getPreviewCommand({List<String> networkArguments = const []}) {
     String quote(String value) =>
         RegExp(r'^[A-Za-z0-9_./:@=,+-]+$').hasMatch(value)
         ? value
         : "'${value.replaceAll("'", "'\"'\"'")}'";
     final args = <String>[
+      ...networkArguments,
       if (port != '22') ...['-p', port],
       if (identityFile.isNotEmpty) ...[
         '-i',
@@ -457,9 +473,13 @@ class SSHHost {
             ? '${Platform.environment['HOME']}/${identityFile.substring(2)}'
             : identityFile,
       ],
-      if (proxyJump.isNotEmpty) ...['-J', proxyJump],
+      if (proxyJump.isNotEmpty && networkArguments.isEmpty) ...[
+        '-J',
+        proxyJump,
+      ],
       if (dynamicForward.isNotEmpty) ...['-D', dynamicForward],
       for (final forward in localForwards) ...['-L', forward],
+      for (final forward in remoteForwards) ...['-R', forward],
       for (final entry in advancedOptions.entries) ...[
         '-o',
         '${entry.key}=${entry.value}',
@@ -478,25 +498,45 @@ class SSHHost {
 class ManagedMapping {
   final String id;
   String serverAlias;
-  final String type;
-  final String value;
+  String type;
+  String value;
+  String group;
+  List<String> tags;
   ManagedMapping({
     required this.id,
     required this.serverAlias,
     required this.type,
     required this.value,
-  });
-  Map<String, String> toJson() => {
+    String group = '',
+    Iterable<String> tags = const [],
+  }) : group = group.trim(),
+       tags = normalizeTags(tags);
+
+  static List<String> normalizeTags(Iterable<String> tags) =>
+      tags
+          .map((tag) => tag.trim())
+          .where((tag) => tag.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+  Map<String, dynamic> toJson() => {
     'id': id,
     'server': serverAlias,
     'type': type,
     'value': value,
+    'group': group,
+    'tags': tags,
   };
   factory ManagedMapping.fromJson(Map<String, dynamic> data) => ManagedMapping(
     id: data['id'] as String,
     serverAlias: data['server'] as String,
     type: data['type'] as String,
     value: data['value'] as String,
+    group: data['group'] is String ? data['group'] as String : '',
+    tags: data['tags'] is List
+        ? (data['tags'] as List).whereType<String>()
+        : const [],
   );
 }
 
@@ -509,9 +549,30 @@ const _configArchiveBudget = 10 * 1024 * 1024;
 class SSHStore extends ChangeNotifier {
   HarborPreferences preferences = const HarborPreferences();
   bool preferencesLoaded = false;
-  String applicationVersion = '1.0.1';
+  String applicationVersion = '1.0.2';
   void notifyUpdateListeners() => notifyListeners();
   HarborUpdate? availableUpdate;
+  int? pendingUpdatePrompt;
+  int? skippedUpdateBuild;
+  void skipUpdatePrompt() {
+    skippedUpdateBuild = pendingUpdatePrompt;
+    pendingUpdatePrompt = null;
+    notifyListeners();
+  }
+
+  Future<void> ignoreUpdatePrompt() async {
+    final build = pendingUpdatePrompt;
+    pendingUpdatePrompt = null;
+    if (build != null) {
+      await updatePreferences(preferences.copyWith(ignoredUpdateBuild: build));
+    }
+  }
+
+  bool get shouldPromptForUpdate =>
+      pendingUpdatePrompt != null &&
+      pendingUpdatePrompt != skippedUpdateBuild &&
+      pendingUpdatePrompt != preferences.ignoredUpdateBuild;
+
   bool updateBusy = false;
   bool updateError = false;
   String updateStatus = 'Check for new versions of Harbor.';
@@ -575,23 +636,146 @@ class SSHStore extends ChangeNotifier {
   }
 
   final List<ManagedMapping> mappings = [];
+  final Set<String> mappingGroups = {};
+  List<String> get mappingGroupNames => {
+    ...mappingGroups,
+    ...mappings.map((mapping) => mapping.group),
+  }.where((name) => name.isNotEmpty).toList()..sort();
+
+  Future<void> createMappingGroup(String name) async {
+    final group = name.trim();
+    if (group.isEmpty || group == 'Ungrouped') return;
+    mappingGroups.add(group);
+    notifyListeners();
+    await saveMetadata();
+  }
+
+  Future<void> setMappingGroup(ManagedMapping mapping, String name) async {
+    if (mapping.group.isNotEmpty) mappingGroups.add(mapping.group);
+    mapping.group = name.trim();
+    if (mapping.group.isNotEmpty) mappingGroups.add(mapping.group);
+    notifyListeners();
+    await saveMetadata();
+  }
+
+  /// Move the existing objects, preserving their processes, IDs and tags.
+  Future<void> moveMappings(
+    Iterable<ManagedMapping> selection,
+    String group, {
+    ManagedMapping? target,
+    bool after = false,
+  }) async {
+    final wanted = selection.toSet();
+    final moving = mappings.where(wanted.contains).toList();
+    if (moving.isEmpty || wanted.contains(target)) return;
+    if (target != null && !mappings.contains(target)) return;
+    for (final rule in moving) {
+      if (rule.group.isNotEmpty) mappingGroups.add(rule.group);
+      rule.group = group.trim();
+    }
+    if (group.trim().isNotEmpty) mappingGroups.add(group.trim());
+    mappings.removeWhere(wanted.contains);
+    final index = target == null
+        ? mappings.lastIndexWhere((rule) => rule.group == group.trim()) + 1
+        : mappings.indexOf(target) + (after ? 1 : 0);
+    mappings.insertAll(index, moving);
+    notifyListeners();
+    await saveMetadata();
+  }
+
+  Future<List<String>> startMappings(Iterable<ManagedMapping> selection) async {
+    final rules = selection
+        .where(
+          (rule) =>
+              mappings.contains(rule) &&
+              !mappingRunning(rule) &&
+              !mappingLoading(rule),
+        )
+        .toSet()
+        .toList();
+    final results = await Future.wait(
+      rules.map((rule) async {
+        final error = await toggleMapping(rule);
+        return error == null
+            ? null
+            : '${rule.serverAlias} · ${rule.value}: $error';
+      }),
+    );
+    return results.whereType<String>().toList();
+  }
+
   String mappingKey(ManagedMapping mapping) => 'mapping:${mapping.id}';
   bool mappingRunning(ManagedMapping mapping) =>
       _activeProxies.containsKey(mappingKey(mapping)) &&
       !mappingLoading(mapping);
   bool mappingLoading(ManagedMapping mapping) =>
       _loadingStates[mappingKey(mapping)] ?? false;
-  Future<void> addMapping(String server, String type, String value) async {
+  Future<void> addMapping(
+    String server,
+    String type,
+    String value, {
+    String group = '',
+    Iterable<String> tags = const [],
+  }) async {
+    if (group.trim().isNotEmpty) mappingGroups.add(group.trim());
     mappings.add(
       ManagedMapping(
         id: '${DateTime.now().microsecondsSinceEpoch}-${mappings.length}',
         serverAlias: server,
         type: type,
         value: value,
+        group: group,
+        tags: tags,
       ),
     );
     notifyListeners();
     await saveMetadata();
+  }
+
+  Future<void> updateMapping(
+    ManagedMapping mapping,
+    String server,
+    String type,
+    String value, {
+    String group = '',
+    Iterable<String> tags = const [],
+  }) async {
+    if (mapping.serverAlias != server ||
+        mapping.type != type ||
+        mapping.value != value) {
+      await stopMapping(mapping);
+    }
+    mapping.serverAlias = server;
+    mapping.type = type;
+    mapping.value = value;
+    mapping.group = group.trim();
+    if (mapping.group.isNotEmpty) mappingGroups.add(mapping.group);
+    mapping.tags = ManagedMapping.normalizeTags(tags);
+    notifyListeners();
+    await saveMetadata();
+  }
+
+  Future<void> renameMappingGroup(String group, String next) async {
+    final name = next.trim();
+    if (name == 'Ungrouped') return;
+    mappingGroups.remove(group);
+    if (name.isNotEmpty) mappingGroups.add(name);
+    for (final mapping in mappings.where((mapping) => mapping.group == group)) {
+      mapping.group = name;
+    }
+    notifyListeners();
+    await saveMetadata();
+  }
+
+  Future<List<String>> startMappingGroup(String group) async {
+    return startMappings(mappings.where((rule) => rule.group == group));
+  }
+
+  Future<void> stopMappingGroup(String group) async {
+    for (final mapping
+        in mappings.where((mapping) => mapping.group == group).toList()) {
+      await stopMapping(mapping);
+    }
   }
 
   Future<void> stopMapping(ManagedMapping mapping) async {
@@ -707,6 +891,7 @@ class SSHStore extends ChangeNotifier {
       host.proxyJump,
       host.dynamicForward,
       host.localForwards,
+      host.remoteForwards,
       {for (final key in keys) key: host.advancedOptions[key]},
     ]);
   }
@@ -723,6 +908,7 @@ class SSHStore extends ChangeNotifier {
   final List<String> recentHosts = [];
   final Set<String> favorites = {};
   final Map<String, String> hostGroups = {};
+  final Map<String, List<String>> hostTags = {};
   final Set<String> explicitGroups = {};
   final List<String> sectionOrder = [];
   final Map<String, List<String>> hostOrder = {};
@@ -1001,6 +1187,32 @@ class SSHStore extends ChangeNotifier {
   }
 
   String groupFor(SSHHost host) => hostGroups[host.hostAlias] ?? 'Ungrouped';
+  List<String> tagsFor(SSHHost host) =>
+      List.unmodifiable(hostTags[host.hostAlias] ?? const <String>[]);
+
+  Future<void> setHostTags(SSHHost host, Iterable<String> tags) async {
+    final normalized = ManagedMapping.normalizeTags(tags);
+    if (normalized.isEmpty) {
+      hostTags.remove(host.hostAlias);
+    } else {
+      hostTags[host.hostAlias] = normalized;
+    }
+    search(_searchQuery);
+    await saveMetadata();
+  }
+
+  bool matchesHost(SSHHost host, String query) {
+    final value = query.trim().toLowerCase();
+    if (value.startsWith('#')) {
+      return tagsFor(
+        host,
+      ).any((tag) => tag.toLowerCase() == value.substring(1));
+    }
+    return '${host.hostAlias} ${host.hostName} ${host.user} ${groupFor(host)} ${tagsFor(host).join(' ')}'
+        .toLowerCase()
+        .contains(value);
+  }
+
   bool isFavorite(SSHHost host) => favorites.contains(host.hostAlias);
 
   Future<void> loadMetadata() async {
@@ -1037,6 +1249,7 @@ class SSHStore extends ChangeNotifier {
           HarborPreferences.fromJson(decoded['preferences']);
           for (final key in [
             'mappings',
+            'mappingGroups',
             'favorites',
             'sectionOrder',
             'groupNames',
@@ -1048,6 +1261,7 @@ class SSHStore extends ChangeNotifier {
           }
           for (final key in [
             'hostOrder',
+            'hostTags',
             'groups',
             'icons',
             'groupIcons',
@@ -1081,6 +1295,16 @@ class SSHStore extends ChangeNotifier {
                 ManagedMapping.fromJson(Map<String, dynamic>.from(value)),
           ),
         );
+        mappingGroups.addAll(
+          mappings
+              .map((mapping) => mapping.group)
+              .where((group) => group.isNotEmpty),
+        );
+        mappingGroups.addAll(
+          List<String>.from(
+            data['mappingGroups'] ?? [],
+          ).map((name) => name.trim()).where((name) => name.isNotEmpty),
+        );
         favorites.addAll(List<String>.from(data['favorites'] ?? []));
         final width = data['sidebarWidth'];
         if (width is num) sidebarWidth = width.toDouble().clamp(220, 320);
@@ -1091,6 +1315,16 @@ class SSHStore extends ChangeNotifier {
         sectionOrder.addAll(List<String>.from(data['sectionOrder'] ?? []));
         explicitGroups.addAll(List<String>.from(data['groupNames'] ?? []));
         hostGroups.addAll(Map<String, String>.from(data['groups'] ?? {}));
+        final savedTags = data['hostTags'];
+        if (savedTags is Map) {
+          savedTags.forEach((alias, tags) {
+            if (alias is String && tags is List) {
+              hostTags[alias] = ManagedMapping.normalizeTags(
+                tags.whereType<String>(),
+              );
+            }
+          });
+        }
         hostIcons.addAll(Map<String, String>.from(data['icons'] ?? {}));
         groupIcons.addAll(Map<String, String>.from(data['groupIcons'] ?? {}));
         groupColors.addAll(Map<String, String>.from(data['groupColors'] ?? {}));
@@ -1107,8 +1341,10 @@ class SSHStore extends ChangeNotifier {
     final contents = jsonEncode({
       'preferences': preferences.toJson(),
       'mappings': mappings.map((mapping) => mapping.toJson()).toList(),
+      'mappingGroups': mappingGroups.toList()..sort(),
       'favorites': favorites.toList(),
       'groups': hostGroups,
+      'hostTags': hostTags,
       'groupNames': explicitGroups.toList(),
       'sectionOrder': sectionOrder,
       'hostOrder': hostOrder,
@@ -1223,6 +1459,8 @@ class SSHStore extends ChangeNotifier {
     }
     host.hostAlias = alias;
     if (favorites.remove(old)) favorites.add(alias);
+    final tags = hostTags.remove(old);
+    if (tags != null) hostTags[alias] = tags;
     final icon = hostIcons.remove(old);
     if (icon != null) hostIcons[alias] = icon;
     final group = hostGroups.remove(old);
@@ -1258,14 +1496,7 @@ class SSHStore extends ChangeNotifier {
       filteredHosts = List.from(hosts);
     } else {
       filteredHosts = hosts
-          .where(
-            (h) =>
-                h.hostAlias.toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ) ||
-                h.hostName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                groupFor(h).toLowerCase().contains(_searchQuery.toLowerCase()),
-          )
+          .where((host) => matchesHost(host, _searchQuery))
           .toList();
     }
     notifyListeners();
@@ -1369,6 +1600,11 @@ class SSHStore extends ChangeNotifier {
             case 'dynamicforward':
               current.dynamicForward = value;
               break;
+            case 'remoteforward':
+              current.remoteForwards.add(
+                value.replaceFirst(RegExp(r'\s+'), ':'),
+              );
+              break;
             case 'localforward':
               String normalized = value;
               if (value.contains(' ') && !value.contains(':')) {
@@ -1471,6 +1707,7 @@ class SSHStore extends ChangeNotifier {
     hosts.remove(host);
     favorites.remove(host.hostAlias);
     hostIcons.remove(host.hostAlias);
+    hostTags.remove(host.hostAlias);
     final group = hostGroups.remove(host.hostAlias);
     if (group != null) explicitGroups.add(group);
     for (final order in hostOrder.values) {
@@ -1509,7 +1746,9 @@ class SSHStore extends ChangeNotifier {
   Future<void> copyCommandToClipboard(BuildContext context) async {
     if (currentHost == null) return;
     final h = currentHost!;
-    final cmd = h.getPreviewCommand();
+    final cmd = h.getPreviewCommand(
+      networkArguments: await sshNetworkProxyArguments(h),
+    );
 
     await Clipboard.setData(ClipboardData(text: cmd));
 
@@ -1537,7 +1776,9 @@ class SSHStore extends ChangeNotifier {
   Future<void> openTerminal([SSHHost? target]) async {
     final host = target ?? currentHost;
     if (host == null) return;
-    final cmd = host.getPreviewCommand();
+    final cmd = host.getPreviewCommand(
+      networkArguments: await sshNetworkProxyArguments(host),
+    );
     final directory = await Directory.systemTemp.createTemp('harbor-ssh-');
     final script = File(p.join(directory.path, 'connect.command'));
     try {
@@ -1580,6 +1821,8 @@ class SSHStore extends ChangeNotifier {
           ),
         for (final value in host.localForwards)
           startProxy(alias, forwardType: 'L', forwardValue: value),
+        for (final value in host.remoteForwards)
+          startProxy(alias, forwardType: 'R', forwardValue: value),
       ]);
       final errors = results.whereType<String>().toList();
       return errors.isEmpty ? null : errors.join('\n');
@@ -1636,6 +1879,9 @@ class SSHStore extends ChangeNotifier {
       for (var fwd in h.localForwards) {
         args.addAll(['-L', fwd]);
       }
+      for (final forward in h.remoteForwards) {
+        args.addAll(['-R', forward]);
+      }
     }
 
     args.addAll(['-o', 'ExitOnForwardFailure=yes']);
@@ -1667,6 +1913,12 @@ class SSHStore extends ChangeNotifier {
     args.addAll(['--', '${h.user.isEmpty ? '' : '${h.user}@'}${h.hostName}']);
 
     try {
+      final networkArguments = await sshNetworkProxyArguments(h);
+      if (networkArguments.isNotEmpty) {
+        final jumpIndex = args.indexOf('-J');
+        if (jumpIndex >= 0) args.removeRange(jumpIndex, jumpIndex + 2);
+        args.insertAll(0, networkArguments);
+      }
       debugPrint("Starting background SSH: ssh ${args.join(' ')}");
 
       final process = await _spawnProxy(args);
@@ -1858,11 +2110,80 @@ class _MainWindowState extends State<MainWindow>
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleSearchKey);
     _dragTicker = createTicker(_scrollDuringDrag);
     if (!Platform.environment.containsKey('FLUTTER_TEST')) {
       _activityMonitor.start();
     }
     _commandChannel.setMethodCallHandler(_handleNativeCommand);
+  }
+
+  bool _handleSearchKey(KeyEvent event) {
+    final keyboard = HardwareKeyboard.instance;
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.keyF ||
+        !(keyboard.isMetaPressed || keyboard.isControlPressed) ||
+        keyboard.isAltPressed ||
+        keyboard.isShiftPressed ||
+        !mounted ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return false;
+    }
+    unawaited(_openSearch());
+    return true;
+  }
+
+  bool _updatePromptQueued = false;
+  Future<void> _promptForUpdate(SSHStore store) async {
+    if (_updatePromptQueued ||
+        !store.shouldPromptForUpdate ||
+        store.updateBusy) {
+      return;
+    }
+    _updatePromptQueued = true;
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      while (mounted &&
+          store.shouldPromptForUpdate &&
+          ModalRoute.of(context)?.isCurrent == false) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      if (!mounted || !store.shouldPromptForUpdate) return;
+      final update = store.availableUpdate;
+      if (update == null) return;
+      final action = await showHarborDialog<String>(
+        context: context,
+        builder: (dialogContext) => HarborAlert(
+          appIcon: const Icon(CupertinoIcons.arrow_down_circle),
+          title: Text('发现新版本 ${update.version}'),
+          message: const Text(
+            '立即更新会下载安装包并重启 Harbor，当前端口转发将关闭。跳过只在本次启动生效；忽略后不再自动提示此版本。',
+          ),
+          tertiaryButton: HarborButton(
+            label: '跳过本次更新',
+            secondary: true,
+            onPressed: () => Navigator.of(dialogContext).pop('skip'),
+          ),
+          secondaryButton: HarborButton(
+            label: '忽略',
+            secondary: true,
+            onPressed: () => Navigator.of(dialogContext).pop('ignore'),
+          ),
+          primaryButton: HarborButton(
+            label: '立即更新',
+            onPressed: () => Navigator.of(dialogContext).pop('install'),
+          ),
+        ),
+      );
+      if (action == 'ignore') {
+        await store.ignoreUpdatePrompt();
+      } else {
+        store.skipUpdatePrompt();
+        if (action == 'install') await store.installUpdate();
+      }
+    } finally {
+      _updatePromptQueued = false;
+    }
   }
 
   static const _commandChannel = MethodChannel('harbor/commands');
@@ -1990,6 +2311,9 @@ class _MainWindowState extends State<MainWindow>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final store = context.watch<SSHStore>();
+    if (store.shouldPromptForUpdate && !_updatePromptQueued) {
+      unawaited(_promptForUpdate(store));
+    }
     if (!_initialPageSelected && store.preferencesLoaded) {
       _initialPageSelected = true;
       _workbench = store.preferences.startPage == 'workbench';
@@ -2181,6 +2505,7 @@ class _MainWindowState extends State<MainWindow>
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleSearchKey);
     _commandChannel.setMethodCallHandler(null);
     _activityMonitor.dispose();
     _windowFocus.dispose();
@@ -2828,6 +3153,12 @@ class _MainWindowState extends State<MainWindow>
           }),
         ),
         HarborMenuEntry(
+          'Edit tags…',
+          CupertinoIcons.tag,
+          onSelected: () =>
+              perform(() => showHostTagsEditor(context, store, host)),
+        ),
+        HarborMenuEntry(
           'Choose icon…',
           CupertinoIcons.square_grid_2x2,
           onSelected: () =>
@@ -2964,7 +3295,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
     super.initState();
     _tabController = MacosTabController(
       initialIndex: widget.initialTab,
-      length: 4,
+      length: 5,
     );
     _tabController.addListener(_handleTabChange);
   }
@@ -2980,60 +3311,6 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
     super.dispose();
   }
 
-  Future<void> _handleConnect(
-    BuildContext context,
-    SSHStore store,
-    SSHHost host,
-  ) async {
-    if (store.isDirty(host.hostAlias)) {
-      showHarborDialog(
-        context: context,
-        builder: (_) => HarborAlert(
-          appIcon: const Icon(CupertinoIcons.exclamationmark_triangle),
-          title: const Text("Unsaved Changes"),
-          message: const Text(
-            "You have unsaved changes. Do you want to save them before connecting?",
-          ),
-          primaryButton: HarborButton(
-            label: "Save & Connect",
-            onPressed: () async {
-              Navigator.of(context, rootNavigator: true).pop();
-              final saved = await store.saveConfig();
-              if (saved && !store.isDirty(host.hostAlias) && context.mounted) {
-                _performConnection(context, store);
-              }
-            },
-          ),
-          secondaryButton: HarborButton(
-            secondary: true,
-            label: "Cancel",
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ),
-      );
-    } else {
-      _performConnection(context, store);
-    }
-  }
-
-  Future<void> _performConnection(BuildContext context, SSHStore store) async {
-    final error = await store.toggleConnection();
-    if (error != null && context.mounted) {
-      showHarborDialog(
-        context: context,
-        builder: (_) => HarborAlert(
-          appIcon: const Icon(CupertinoIcons.exclamationmark_triangle),
-          title: const Text("Connection Failed"),
-          message: Text(error),
-          primaryButton: HarborButton(
-            label: "OK",
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final store = context.watch<SSHStore>();
@@ -3044,8 +3321,6 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
       return const HarborEmptyState(message: 'Select or create a host');
     }
 
-    final isConnected = store.isConnected(host.hostAlias);
-    final isLoading = store.isLoading(host.hostAlias);
     final isDirty = store.isDirty(host.hostAlias);
 
     return Column(
@@ -3076,7 +3351,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${store.groupFor(host)} · ${host.hostName}',
+                          '${store.groupFor(host)} · ${host.hostName}${store.tagsFor(host).isEmpty ? '' : ' · ${store.tagsFor(host).map((tag) => '#$tag').join(' ')}'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -3123,6 +3398,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                           'General',
                           'Connection',
                           'Advanced',
+                          'Port mapping',
                         ].asMap().entries)
                           MouseRegion(
                             cursor: SystemMouseCursors.click,
@@ -3132,6 +3408,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                               if (_hoveredTab == entry.key) _hoveredTab = null;
                             }),
                             child: GestureDetector(
+                              key: ValueKey('host-tab:${entry.key}'),
                               behavior: HitTestBehavior.opaque,
                               onTap: () {
                                 _tabController.index = entry.key;
@@ -3158,10 +3435,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                                   entry.value,
                                   style: TextStyle(
                                     fontSize: 12,
-                                    fontWeight:
-                                        _tabController.index == entry.key
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
+                                    fontWeight: FontWeight.w500,
                                     color: _tabController.index == entry.key
                                         ? HarborColors.of(context).accent
                                         : _hoveredTab == entry.key
@@ -3175,16 +3449,6 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                       ],
                     ),
                   ),
-                  if (isLoading)
-                    const ProgressCircle(radius: 8)
-                  else if (isConnected ||
-                      host.dynamicForward.isNotEmpty ||
-                      host.localForwards.isNotEmpty)
-                    HarborButton(
-                      secondary: true,
-                      onPressed: () => _handleConnect(context, store, host),
-                      label: isConnected ? 'Stop tunnels' : 'Start tunnels',
-                    ),
                 ],
               ),
             ],
@@ -3203,6 +3467,9 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                   _buildGeneral(context, store),
                   _buildConnection(context, store),
                   _buildAdvanced(context, store),
+                  SingleChildScrollView(
+                    child: HarborConfigForwards(host: host),
+                  ),
                 ][_tabController.index],
               ),
             ),
@@ -3353,7 +3620,15 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
               'localhost:${fwd.split(':')[0]}',
               fwd.split(':').sublist(1).join(':'),
             ),
-          if (host.dynamicForward.isEmpty && host.localForwards.isEmpty)
+          for (final forward in host.remoteForwards)
+            _buildTunnelRow(
+              'Remote',
+              'server:${forward.split(':').first}',
+              forward.split(':').sublist(1).join(':'),
+            ),
+          if (host.dynamicForward.isEmpty &&
+              host.localForwards.isEmpty &&
+              host.remoteForwards.isEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -3371,7 +3646,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Manage independent tunnels in Port mappings.',
+                      'Add forwarding settings in the Port mapping tab.',
                       style: TextStyle(fontSize: 12, color: muted),
                     ),
                   ),
@@ -3445,71 +3720,98 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
   // --- Tab 2: General ---
   Widget _buildGeneral(BuildContext context, SSHStore store) {
     final host = store.currentHost!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildLabel('Group'),
-                  Text(
-                    store.groupFor(host),
-                    style: MacosTheme.of(context).typography.body,
-                  ),
-                ],
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildLabel('Group'),
+                    Text(
+                      store.groupFor(host),
+                      style: MacosTheme.of(context).typography.body,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            HarborButton(
-              secondary: true,
-              onPressed: () => showGroupEditor(context, store, host),
-              label: 'Change group…',
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Row(
-          children: [
-            HostMonogram(
-              host: host,
-              color: store.colorForGroup(store.groupFor(host)),
-            ),
-            const SizedBox(width: 12),
-            HarborButton(
-              label: 'Choose icon',
-              secondary: true,
-              onPressed: () => showHostIconPicker(context, store, host),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _buildLabel("Host Alias (Display Name)"),
-        HarborTextField(
-          autofocus: host.hostName.isEmpty,
-          initialValue: host.hostAlias,
-          validator: (value) => store.validateHostAlias(host, value),
-          onChanged: (v) {
-            store.renameHost(host, v);
-          },
-        ),
-        const SizedBox(height: 20),
-        _buildLabel("HostName (IP Address or Domain)"),
-        HarborTextField(
-          initialValue: host.hostName,
-          onChanged: (v) {
-            host.hostName = v;
-            store.markDirty(host.hostAlias);
-          },
-        ),
-        const Spacer(),
-        HarborButton(
-          color: CupertinoColors.destructiveRed,
-          label: "Delete Host",
-          onPressed: () => confirmDeleteHost(context, store, host),
-        ),
-      ],
+              HarborButton(
+                secondary: true,
+                onPressed: () => showGroupEditor(context, store, host),
+                label: 'Change group…',
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildLabel('Tags'),
+                    Text(
+                      store.tagsFor(host).isEmpty
+                          ? 'No tags'
+                          : store.tagsFor(host).map((tag) => '#$tag').join(' '),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              HarborButton(
+                label: 'Edit tags…',
+                secondary: true,
+                onPressed: () => showHostTagsEditor(context, store, host),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              HostMonogram(
+                host: host,
+                color: store.colorForGroup(store.groupFor(host)),
+              ),
+              const SizedBox(width: 12),
+              HarborButton(
+                label: 'Choose icon',
+                secondary: true,
+                onPressed: () => showHostIconPicker(context, store, host),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildLabel("Host Alias (Display Name)"),
+          HarborTextField(
+            autofocus: host.hostName.isEmpty,
+            initialValue: host.hostAlias,
+            validator: (value) => store.validateHostAlias(host, value),
+            onChanged: (v) {
+              store.renameHost(host, v);
+            },
+          ),
+          const SizedBox(height: 20),
+          _buildLabel("HostName (IP Address or Domain)"),
+          HarborTextField(
+            initialValue: host.hostName,
+            onChanged: (v) {
+              host.hostName = v;
+              store.markDirty(host.hostAlias);
+            },
+          ),
+          const SizedBox(height: 24),
+          HarborButton(
+            color: CupertinoColors.destructiveRed,
+            label: "Delete Host",
+            onPressed: () => confirmDeleteHost(context, store, host),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3616,49 +3918,30 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
     SSHStore store,
     SSHHost host,
   ) async {
-    final keys = await store.listKeys();
-    if (!context.mounted) return;
-
-    await showHarborSheet(
-      context: context,
-      builder: (context) => MacosSheet(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              const Text(
-                "Select Identity File",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: keys.length,
-                  itemBuilder: (context, index) {
-                    final k = keys[index];
-                    return MacosListTile(
-                      leading: const Icon(CupertinoIcons.doc_text),
-                      title: Text(p.basename(k)),
-                      subtitle: Text(k, style: const TextStyle(fontSize: 10)),
-                      onClick: () {
-                        host.identityFile = k;
-                        store.markDirty(host.hostAlias);
-                        Navigator.of(context).pop();
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 10),
-              HarborButton(
-                label: "Cancel",
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
+    try {
+      final path = await const MethodChannel(
+        'harbor/files',
+      ).invokeMethod<String>('pickIdentityFile');
+      if (!context.mounted || path == null || !store.hosts.contains(host)) {
+        return;
+      }
+      host.identityFile = path;
+      store.markDirty(host.hostAlias);
+    } catch (error) {
+      if (!context.mounted) return;
+      showHarborDialog(
+        context: context,
+        builder: (dialogContext) => HarborAlert(
+          appIcon: const Icon(CupertinoIcons.exclamationmark_triangle),
+          title: const Text('Could not select identity file'),
+          message: Text('$error'),
+          primaryButton: HarborButton(
+            label: 'OK',
+            onPressed: () => Navigator.pop(dialogContext),
           ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _showKeyGenerator(BuildContext context, SSHStore store) {
@@ -3832,9 +4115,7 @@ class _LibraryHostRowState extends State<LibraryHostRow> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      store.preferences.showAddresses
-                          ? widget.host.hostName
-                          : store.groupFor(widget.host),
+                      '${store.preferences.showAddresses ? widget.host.hostName : store.groupFor(widget.host)}${store.tagsFor(widget.host).isEmpty ? '' : ' · ${store.tagsFor(widget.host).map((tag) => '#$tag').join(' ')}'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -3895,6 +4176,75 @@ Future<void> launchHostTerminal(
       ),
     );
   }
+}
+
+Future<void> showHostTagsEditor(
+  BuildContext context,
+  SSHStore store,
+  SSHHost host,
+) async {
+  final controller = TextEditingController(
+    text: store.tagsFor(host).join(', '),
+  );
+  final suggestions =
+      store.hostTags.values.expand((tags) => tags).toSet().toList()..sort();
+  final value = await showHarborDialog<String>(
+    context: context,
+    builder: (dialogContext) => HarborAlert(
+      appIcon: const Icon(CupertinoIcons.tag),
+      title: const Text('Server tags'),
+      message: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Separate tags with commas. Clear the field to remove all tags.',
+          ),
+          const SizedBox(height: 12),
+          HarborTextField(
+            controller: controller,
+            autofocus: true,
+            placeholder: 'work, production',
+            onSubmitted: (value) => Navigator.pop(dialogContext, value),
+          ),
+          if (suggestions.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final tag in suggestions)
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    minimumSize: Size.zero,
+                    onPressed: () {
+                      final tags = ManagedMapping.normalizeTags(
+                        controller.text.split(RegExp('[,，]')),
+                      );
+                      if (!tags.remove(tag)) tags.add(tag);
+                      controller.text = tags.join(', ');
+                    },
+                    child: Text('#$tag', style: const TextStyle(fontSize: 12)),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+      secondaryButton: HarborButton(
+        label: 'Cancel',
+        secondary: true,
+        onPressed: () => Navigator.pop(dialogContext),
+      ),
+      primaryButton: HarborButton(
+        label: 'Save tags',
+        onPressed: () => Navigator.pop(dialogContext, controller.text),
+      ),
+    ),
+  );
+  await Future<void>.delayed(const Duration(milliseconds: 150));
+  controller.dispose();
+  if (value != null) await store.setHostTags(host, value.split(RegExp('[,，]')));
 }
 
 Future<void> showGroupEditor(
@@ -4038,14 +4388,7 @@ class _QuickConnectSheetState extends State<QuickConnectSheet> {
   Widget build(BuildContext context) {
     final store = context.watch<SSHStore>();
     final matches =
-        store.hosts
-            .where(
-              (host) =>
-                  '${host.hostAlias} ${host.hostName} ${host.user} ${store.groupFor(host)}'
-                      .toLowerCase()
-                      .contains(query.toLowerCase()),
-            )
-            .toList()
+        store.hosts.where((host) => store.matchesHost(host, query)).toList()
           ..sort((a, b) {
             final favoriteOrder =
                 (store.isFavorite(b) ? 1 : 0) - (store.isFavorite(a) ? 1 : 0);

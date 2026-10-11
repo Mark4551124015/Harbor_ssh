@@ -351,7 +351,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('lab').last);
     await tester.pumpAndSettle();
-    final inputs = find.byType(MacosTextField);
+    final inputs = find.descendant(
+      of: find.byType(HarborAlert),
+      matching: find.byType(MacosTextField),
+    );
     await tester.enterText(inputs.at(0), '70000');
     await tester.pump();
     expect(
@@ -360,6 +363,10 @@ void main() {
     );
     await tester.enterText(inputs.at(0), '8080');
     await tester.enterText(inputs.at(2), '80');
+    await tester.ensureVisible(inputs.at(3));
+    await tester.enterText(inputs.at(3), 'Research');
+    await tester.ensureVisible(inputs.at(4));
+    await tester.enterText(inputs.at(4), 'db, work, db');
     await tester.pump();
     await tester.tap(find.text('Add mapping').last);
     await tester.pump(const Duration(milliseconds: 200));
@@ -367,9 +374,16 @@ void main() {
     expect(host.localForwards, isEmpty);
     expect(store.mappings.last.serverAlias, 'lab');
     expect(store.mappings.last.value, '8080:localhost:80');
+    expect(store.mappings.last.group, 'Research');
+    expect(store.mappings.last.tags, ['db', 'work']);
     expect(find.text('lab · Local forward'), findsOneWidget);
     expect(find.text('Stopped'), findsNWidgets(2));
-    await tester.tap(find.byTooltip('Remove mapping').last);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(ValueKey('mapping:${store.mappings.last.id}')),
+        matching: find.byTooltip('Remove mapping'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(store.mappings.length, 1);
     expect(host.localForwards, isEmpty);

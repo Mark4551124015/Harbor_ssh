@@ -1,7 +1,7 @@
 name: Release
 on:
   push:
-    tags: ['v*', 'beta-*']
+    tags: ['v*', 'beta-*', '*-beta']
   workflow_dispatch:
     inputs:
       tag:
@@ -92,6 +92,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-assets
@@ -102,16 +106,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
-          # beta-* is the public beta channel, published as a normal Release.
+          python3 scripts/release.py notes > "$RUNNER_TEMP/release-notes.md"
+          # Public beta builds remain eligible for the in-app updater.
           case "$RELEASE_TAG" in
-            beta-*) PRERELEASE="--prerelease=false" ;;
+            beta-*|*-beta) PRERELEASE="--prerelease=false" ;;
             *-*) PRERELEASE="--prerelease" ;;
             *) PRERELEASE="--prerelease=false" ;;
           esac
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > existing.txt 2>/dev/null; then
             test "$(cat existing.txt)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes \
+            gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file "$RUNNER_TEMP/release-notes.md" \
               --title "$RELEASE_TAG" $PRERELEASE
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber

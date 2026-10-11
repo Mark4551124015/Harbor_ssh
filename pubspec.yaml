@@ -1,7 +1,7 @@
 name: macos_ssh_tool
 description: A high-performance SSH manager for macOS.
 publish_to: 'none'
-version: 1.0.1-beta+3
+version: 1.0.2-beta+4
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -16,6 +16,7 @@ dependencies:
   # Path handling
   path_provider: ^2.1.1
   path: ^1.8.3
+  socks5_proxy: ^2.1.1
   # Icon font
   cupertino_icons: ^1.0.2
 

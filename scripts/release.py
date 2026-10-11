@@ -32,6 +32,7 @@ def preflight(tag, official=False, root=ROOT):
     allowed_tags = {f'v{release}'}
     if release.endswith('-beta'):
         allowed_tags.add(f'beta-{release.removesuffix("-beta")}')
+        allowed_tags.add(release)
     if tag not in allowed_tags:
         raise ValueError(f'Tag must match pubspec version: v{release}')
     app_info = (root / 'macos/Runner/Configs/AppInfo.xcconfig').read_text()
@@ -40,6 +41,16 @@ def preflight(tag, official=False, root=ROOT):
     if official and not any((root / name).is_file() for name in ['LICENSE', 'LICENSE.md', 'LICENSE.txt']):
         raise ValueError('Choose and add a LICENSE before an official signed release.')
     return release, build
+
+
+def release_notes(root=ROOT):
+    release, _ = version(root)
+    changelog = (root / 'CHANGELOG.md').read_text()
+    match = re.search(r'^## ' + re.escape(release) + r'\s*\n(.*?)(?=^## |\Z)',
+                      changelog, re.M | re.S)
+    if not match or not match[1].strip():
+        raise ValueError(f'CHANGELOG.md must contain release notes for {release}.')
+    return match[1].strip() + '\n'
 
 
 def run(*args):
@@ -120,6 +131,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('build-name')
+    sub.add_parser('notes')
     pre = sub.add_parser('preflight')
     pre.add_argument('--tag', required=True)
     pre.add_argument('--official', action='store_true')
@@ -135,6 +147,8 @@ def main():
     try:
         if args.command == 'build-name':
             print(version()[0].split('-')[0])
+        elif args.command == 'notes':
+            print(release_notes(), end='')
         elif args.command == 'preflight':
             print(preflight(args.tag, args.official))
         elif args.command == 'adhoc':

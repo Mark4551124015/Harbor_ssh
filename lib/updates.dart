@@ -55,10 +55,16 @@ class HarborUpdate {
   }
 }
 
+String _updateFailureMessage(Object error) {
+  if (error is PlatformException) return error.message ?? 'Update failed.';
+  if (error is HttpException) return error.message;
+  if (error is FormatException) return error.message;
+  return 'Could not reach the update server. Check Proxy settings or try again.';
+}
+
 extension HarborUpdates on SSHStore {
   Future<List<int>> _updateRequest(Uri url) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+    final client = await createUpdateHttpClient(url);
     try {
       final request = await client
           .getUrl(url)
@@ -67,6 +73,12 @@ extension HarborUpdates on SSHStore {
       final response = await request.close().timeout(
         const Duration(seconds: 20),
       );
+      if (response.statusCode == 403 &&
+          response.headers.value('x-ratelimit-remaining') == '0') {
+        throw const HttpException(
+          'GitHub API rate limit reached. Try again later or change the update proxy.',
+        );
+      }
       if (response.statusCode != 200) {
         throw HttpException('Update server returned ${response.statusCode}.');
       }
@@ -120,12 +132,18 @@ extension HarborUpdates on SSHStore {
         data,
         int.tryParse(applicationBuild) ?? 0,
       );
+      if (automatic &&
+          availableUpdate != null &&
+          availableUpdate!.build != preferences.ignoredUpdateBuild &&
+          availableUpdate!.build != skippedUpdateBuild) {
+        pendingUpdatePrompt = availableUpdate!.build;
+      }
       updateStatus = availableUpdate == null
           ? 'Harbor is up to date.'
           : '${availableUpdate!.version} is available.';
-    } catch (_) {
+    } catch (error) {
       updateError = true;
-      updateStatus = 'Could not check for updates. Please try again.';
+      updateStatus = _updateFailureMessage(error);
     } finally {
       updateBusy = false;
       notifyUpdateListeners();
@@ -156,10 +174,14 @@ extension HarborUpdates on SSHStore {
       if (expected == null) {
         throw const FormatException('Update checksum missing.');
       }
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 15);
+      final client = await createUpdateHttpClient(update.archive);
       try {
-        final response = await (await client.getUrl(update.archive)).close();
+        final request = await client
+            .getUrl(update.archive)
+            .timeout(const Duration(seconds: 20));
+        final response = await request.close().timeout(
+          const Duration(seconds: 20),
+        );
         if (response.statusCode != 200) {
           throw const HttpException('Download failed.');
         }
@@ -230,9 +252,7 @@ extension HarborUpdates on SSHStore {
       staging = null; // The detached installer owns cleanup after app exit.
     } catch (error) {
       updateError = true;
-      updateStatus = error is PlatformException
-          ? error.message ?? 'Update failed.'
-          : 'Update failed. Please try again.';
+      updateStatus = _updateFailureMessage(error);
     } finally {
       if (staging != null) await staging.delete(recursive: true);
       updateBusy = false;

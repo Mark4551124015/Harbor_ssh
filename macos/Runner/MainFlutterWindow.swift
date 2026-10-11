@@ -1,6 +1,13 @@
 import Cocoa
+import CFNetwork
 import QuartzCore
 import FlutterMacOS
+
+private final class HarborPACResult {
+  var proxies: [[String: Any]] = []
+  var finished = false
+  var failed = false
+}
 
 class MainFlutterWindow: NSWindow, NSWindowDelegate {
   private var commandChannel: FlutterMethodChannel?
@@ -54,6 +61,61 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
   func shutdownConnections(completion: @escaping () -> Void) {
     guard let channel = commandChannel else { completion(); return }
     channel.invokeMethod("shutdown", arguments: nil) { _ in completion() }
+  }
+
+  private func systemProxy(_ arguments: Any?, result: @escaping FlutterResult) {
+    guard let args = arguments as? [String: Any], let value = args["url"] as? String,
+      let url = URL(string: value), ["http", "https"].contains(url.scheme ?? "") else {
+      result(FlutterError(code: "proxy", message: "Invalid proxy destination.", details: nil)); return
+    }
+    DispatchQueue.global(qos: .userInitiated).async {
+      guard let settings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() else {
+        DispatchQueue.main.async { result(["type": "direct", "configured": false]) }; return
+      }
+      let dictionary = settings as NSDictionary
+      let configured = ["HTTPEnable", "HTTPSEnable", "SOCKSEnable", "ProxyAutoConfigEnable", "ProxyAutoDiscoveryEnable"]
+        .contains { (dictionary[$0] as? NSNumber)?.boolValue == true }
+      var proxies = CFNetworkCopyProxiesForURL(url as CFURL, settings).takeRetainedValue() as? [[String: Any]] ?? []
+      if let first = proxies.first,
+        first[kCFProxyTypeKey as String] as? String == kCFProxyTypeAutoConfigurationURL as String,
+        let pacURL = first[kCFProxyAutoConfigurationURLKey as String] as? URL {
+        let box = HarborPACResult()
+        var context = CFStreamClientContext(version: 0,
+          info: Unmanaged.passUnretained(box).toOpaque(), retain: nil, release: nil, copyDescription: nil)
+        let source = CFNetworkExecuteProxyAutoConfigurationURL(pacURL as CFURL, url as CFURL,
+          { info, list, error in
+            let box = Unmanaged<HarborPACResult>.fromOpaque(info).takeUnretainedValue()
+            box.proxies = list as? [[String: Any]] ?? []
+            box.failed = error != nil
+            box.finished = true
+          }, &context)
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
+        let deadline = Date().addingTimeInterval(10)
+        while !box.finished && Date() < deadline {
+          CFRunLoopRunInMode(.defaultMode, 0.1, true)
+        }
+        CFRunLoopSourceInvalidate(source)
+        guard box.finished && !box.failed else {
+          DispatchQueue.main.async { result(FlutterError(code: "proxy",
+            message: "Could not resolve the system proxy script. Check Proxy settings.", details: nil)) }; return
+        }
+        proxies = box.proxies
+      }
+      guard let first = proxies.first else {
+        DispatchQueue.main.async { result(["type": "direct", "configured": configured]) }; return
+      }
+      let type = first[kCFProxyTypeKey as String] as? String ?? ""
+      if type == kCFProxyTypeNone as String {
+        DispatchQueue.main.async { result(["type": "direct", "configured": configured]) }; return
+      }
+      guard [kCFProxyTypeHTTP as String, kCFProxyTypeSOCKS as String, kCFProxyTypeHTTPS as String].contains(type),
+        let host = first[kCFProxyHostNameKey as String] as? String,
+        let port = first[kCFProxyPortNumberKey as String] as? NSNumber else {
+        DispatchQueue.main.async { result(FlutterError(code: "proxy", message: "Unsupported system proxy.", details: nil)) }; return
+      }
+      DispatchQueue.main.async { result(["type": type == kCFProxyTypeSOCKS as String ? "socks" : "http",
+        "host": host, "port": port.intValue, "configured": true]) }
+    }
   }
 
   private func installUpdate(_ arguments: Any?, result: @escaping FlutterResult) {
@@ -156,6 +218,16 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
     commandChannel?.invokeMethod(command, arguments: nil)
   }
 
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    if event.charactersIgnoringModifiers?.lowercased() == "f",
+       modifiers == [.command] || modifiers == [.control] {
+      commandChannel?.invokeMethod("search", arguments: nil)
+      return true
+    }
+    return super.performKeyEquivalent(with: event)
+  }
+
   private func installCommandMenu() {
     guard let menu = NSApp.mainMenu else { return }
     func item(_ title: String, _ key: String, _ command: String,
@@ -213,6 +285,10 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
     installLaunchCover()
     let channel = FlutterMethodChannel(name: "harbor/files", binaryMessenger: flutterViewController.engine.binaryMessenger)
     channel.setMethodCallHandler { call, result in
+      if call.method == "systemProxy" {
+        self.systemProxy(call.arguments, result: result)
+        return
+      }
       if call.method == "installUpdate" {
         self.installUpdate(call.arguments, result: result)
         return
@@ -229,10 +305,18 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
         ])
         return
       }
-      guard call.method == "pickPrivateKey" else { result(FlutterMethodNotImplemented); return }
+      guard call.method == "pickPrivateKey" || call.method == "pickIdentityFile" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
       let panel = NSOpenPanel()
-      panel.title = "Import SSH private key"
-      panel.prompt = "Import"
+      let selectingIdentity = call.method == "pickIdentityFile"
+      panel.title = selectingIdentity ? "Select SSH identity file" : "Import SSH private key"
+      panel.prompt = selectingIdentity ? "Select" : "Import"
+      if selectingIdentity {
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+          .appendingPathComponent(".ssh", isDirectory: true)
+      }
       panel.canChooseDirectories = false
       panel.allowsMultipleSelection = false
       panel.showsHiddenFiles = true

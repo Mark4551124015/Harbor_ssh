@@ -17,6 +17,8 @@ class HarborColors {
   Color get border => dark ? const Color(0xFF293747) : const Color(0xFFDDD7CD);
   Color get text => dark ? const Color(0xFFE8EDF2) : const Color(0xFF263446);
   Color get muted => dark ? const Color(0xFF94A4B5) : const Color(0xFF6D7884);
+  Color get selectionTint => accent.withValues(alpha: dark ? 0.30 : 0.24);
+  Color get dropTint => accent.withValues(alpha: dark ? 0.38 : 0.30);
   Color get accent {
     final palette =
         harborAccentPalette[accentName] ?? harborAccentPalette['Copper']!;
@@ -331,9 +333,13 @@ class _HarborButtonState extends State<HarborButton> {
               decoration: BoxDecoration(
                 color: background,
                 borderRadius: BorderRadius.circular(9),
-                border: focused
-                    ? Border.all(color: colors.accent, width: 1.5)
-                    : null,
+                // Paint focus outside the button without adding layout insets.
+                boxShadow: [
+                  BoxShadow(
+                    color: focused ? colors.accent : Colors.transparent,
+                    spreadRadius: 1.5,
+                  ),
+                ],
               ),
               child: Row(
                 mainAxisSize: widget.fullWidth
@@ -589,6 +595,7 @@ class HarborSelectionSlide extends StatefulWidget {
   final double height;
   final Color color;
   final Key? backdropKey;
+  final bool foreground;
   final List<Widget> children;
   const HarborSelectionSlide({
     super.key,
@@ -596,6 +603,7 @@ class HarborSelectionSlide extends StatefulWidget {
     required this.height,
     required this.color,
     this.backdropKey,
+    this.foreground = false,
     required this.children,
   });
   @override
@@ -672,6 +680,7 @@ class _HarborSelectionSlideState extends State<HarborSelectionSlide>
   Widget build(BuildContext context) => Stack(
     clipBehavior: Clip.hardEdge,
     children: [
+      if (widget.foreground) ...widget.children,
       for (final ghost in ghosts)
         Positioned(
           key: ghost.key,
@@ -719,7 +728,7 @@ class _HarborSelectionSlideState extends State<HarborSelectionSlide>
           ),
         ),
       ),
-      ...widget.children,
+      if (!widget.foreground) ...widget.children,
     ],
   );
 }
@@ -1310,7 +1319,7 @@ class _HarborHostCardState extends State<HarborHostCard> {
               ),
               const SizedBox(height: 16),
               Text(
-                host.hostName.isEmpty ? 'Host not configured' : host.hostName,
+                '${host.hostName.isEmpty ? 'Host not configured' : host.hostName}${store.tagsFor(host).isEmpty ? '' : ' · ${store.tagsFor(host).map((tag) => '#$tag').join(' ')}'}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -1522,6 +1531,7 @@ class HarborAlert extends StatelessWidget {
   final Widget message;
   final Widget primaryButton;
   final Widget? secondaryButton;
+  final Widget? tertiaryButton;
   const HarborAlert({
     super.key,
     required this.appIcon,
@@ -1529,6 +1539,7 @@ class HarborAlert extends StatelessWidget {
     required this.message,
     required this.primaryButton,
     this.secondaryButton,
+    this.tertiaryButton,
   });
   @override
   Widget build(BuildContext context) {
@@ -1599,16 +1610,28 @@ class HarborAlert extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (secondaryButton != null) ...[
-                          Flexible(child: secondaryButton!),
-                          const SizedBox(width: 10),
+                    if (tertiaryButton != null)
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          tertiaryButton!,
+                          if (secondaryButton != null) secondaryButton!,
+                          primaryButton,
                         ],
-                        Flexible(child: primaryButton),
-                      ],
-                    ),
+                      )
+                    else
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (secondaryButton != null) ...[
+                            Flexible(child: secondaryButton!),
+                            const SizedBox(width: 10),
+                          ],
+                          Flexible(child: primaryButton),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -3118,64 +3141,1144 @@ class HarborPageHeader extends StatelessWidget {
   }
 }
 
-class HarborForwardingPage extends StatelessWidget {
+class HarborConfigForwards extends StatelessWidget {
+  final SSHHost host;
+  const HarborConfigForwards({super.key, required this.host});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<SSHStore>();
+    final rules = <HarborForwardRule>[
+      if (host.dynamicForward.isNotEmpty)
+        HarborForwardRule('D', host.dynamicForward),
+      for (final value in host.localForwards) HarborForwardRule('L', value),
+      for (final value in host.remoteForwards) HarborForwardRule('R', value),
+    ];
+    Future<void> change(
+      HarborForwardRule? previous,
+      HarborForwardRule? next,
+    ) async {
+      if (previous != null) {
+        if (previous.type == 'D') host.dynamicForward = '';
+        if (previous.type == 'L') host.localForwards.remove(previous.value);
+        if (previous.type == 'R') host.remoteForwards.remove(previous.value);
+      }
+      if (next != null) {
+        if (next.type == 'D') {
+          host.dynamicForward = next.value;
+        } else if (next.type == 'L') {
+          host.localForwards.add(next.value);
+        } else if (next.type == 'R') {
+          host.remoteForwards.add(next.value);
+        }
+      }
+      store.markDirty(host.hostAlias);
+      await store.saveConfig();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(child: Text('Port mapping')),
+            HarborButton(
+              label: 'Add mapping',
+              secondary: true,
+              onPressed: () => showAddMappingDialog(
+                context,
+                store,
+                initialHost: host,
+                onSave: (rule) => change(null, rule),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'These rules start with your SSH connection. Changes apply to the next connection.',
+          style: TextStyle(fontSize: 11, color: CupertinoColors.systemGrey),
+        ),
+        for (final rule in rules)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    '${rule.type == 'D'
+                        ? 'SOCKS5'
+                        : rule.type == 'R'
+                        ? 'Remote'
+                        : 'Local'} · ${rule.value}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                CupertinoButton(
+                  child: const Icon(CupertinoIcons.pencil, size: 16),
+                  onPressed: () => showAddMappingDialog(
+                    context,
+                    store,
+                    initialHost: host,
+                    initialRule: rule,
+                    onSave: (next) => change(rule, next),
+                  ),
+                ),
+                CupertinoButton(
+                  child: const Icon(CupertinoIcons.trash, size: 16),
+                  onPressed: () => change(rule, null),
+                ),
+              ],
+            ),
+          ),
+        if (rules.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 12),
+            child: Text('No SSH config mappings.'),
+          ),
+      ],
+    );
+  }
+}
+
+class HarborForwardingPage extends StatefulWidget {
   const HarborForwardingPage({super.key});
+  @override
+  State<HarborForwardingPage> createState() => _HarborForwardingPageState();
+}
+
+class _HarborForwardingPageState extends State<HarborForwardingPage>
+    with SingleTickerProviderStateMixin {
+  String _query = '';
+  String? _tag;
+  final Set<String> _collapsed = {};
+
+  final _searchController = TextEditingController();
+  final _scroll = ScrollController();
+  final _viewport = GlobalKey();
+  final _rowKeys = <ManagedMapping, GlobalKey>{};
+  final _groupKeys = <String, GlobalKey>{};
+  final _selected = <ManagedMapping>{};
+  List<ManagedMapping> _visible = [];
+  List<ManagedMapping> _dragging = [];
+  ManagedMapping? _anchor;
+  ManagedMapping? _leader;
+  Offset? _pointer;
+  _MappingDrop? _drop;
+  late final Ticker _scrollTicker;
+  final _selectionFocus = FocusNode();
+  final _searchFocus = FocusNode();
+  bool _dragCancelled = false;
+  bool _menuOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollTicker = createTicker(_scrollDrag);
+    _searchFocus.addListener(() {
+      if (_searchFocus.hasFocus) _clearSelection();
+    });
+  }
+
+  Duration? _lastTick;
+
+  void _clearSelection() {
+    if (_selected.isEmpty) return;
+    setState(() {
+      _selected.clear();
+      _anchor = null;
+    });
+  }
+
+  List<ManagedMapping> _scope(SSHStore store) => store.mappings
+      .where((rule) => _selected.isEmpty || _selected.contains(rule))
+      .toList();
+
+  void _select(ManagedMapping rule) {
+    _selectionFocus.requestFocus();
+    final keyboard = HardwareKeyboard.instance;
+    setState(() {
+      if (keyboard.isShiftPressed &&
+          _anchor != null &&
+          _visible.contains(_anchor)) {
+        final from = _visible.indexOf(_anchor!);
+        final to = _visible.indexOf(rule);
+        if (to < 0) return;
+        if (!keyboard.isMetaPressed && !keyboard.isControlPressed) {
+          _selected.clear();
+        }
+        _selected.addAll(
+          _visible.sublist(from < to ? from : to, (from > to ? from : to) + 1),
+        );
+      } else if (keyboard.isMetaPressed || keyboard.isControlPressed) {
+        if (!_selected.remove(rule)) _selected.add(rule);
+        _anchor = rule;
+      } else {
+        _selected
+          ..clear()
+          ..add(rule);
+        _anchor = rule;
+      }
+    });
+  }
+
+  Rect? _rect(GlobalKey? key) {
+    final box = key?.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !box.attached) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  _MappingDrop? _findDrop() {
+    if (_dragCancelled) return null;
+    final point = _pointer;
+    final viewport = _rect(_viewport);
+    if (point == null || viewport == null || !viewport.contains(point)) {
+      return null;
+    }
+    for (final rule in _visible) {
+      if (_dragging.contains(rule)) continue;
+      final rect = _rect(_rowKeys[rule]);
+      if (rect != null &&
+          Rect.fromLTRB(
+            rect.left,
+            rect.top - 5,
+            rect.right,
+            rect.bottom + 5,
+          ).contains(point)) {
+        return _MappingDrop(
+          rule.group,
+          target: rule,
+          after: point.dy > rect.center.dy,
+        );
+      }
+    }
+    for (final entry in _groupKeys.entries) {
+      final rect = _rect(entry.value);
+      if (rect != null && rect.contains(point)) return _MappingDrop(entry.key);
+    }
+    return null;
+  }
+
+  void _updateDrop() {
+    final next = _findDrop();
+    if (!(_drop?.matches(next) ?? next == null)) setState(() => _drop = next);
+  }
+
+  void _scrollDrag(Duration elapsed) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _dragging.isNotEmpty) _updateDrop();
+    });
+    final previous = _lastTick;
+    _lastTick = elapsed;
+    final rect = _rect(_viewport);
+    if (_pointer == null ||
+        rect == null ||
+        !_scroll.hasClients ||
+        previous == null) {
+      return;
+    }
+    if (_pointer!.dx < rect.left || _pointer!.dx > rect.right) return;
+    final y = _pointer!.dy;
+    final speed = y < rect.top + 64
+        ? -((rect.top + 64 - y) / 64).clamp(0.0, 1.0)
+        : y > rect.bottom - 64
+        ? ((y - rect.bottom + 64) / 64).clamp(0.0, 1.0)
+        : 0.0;
+    if (speed == 0) return;
+    final delta = (elapsed - previous).inMicroseconds / 1000000;
+    final position = (_scroll.offset + speed * 650 * delta).clamp(
+      _scroll.position.minScrollExtent,
+      _scroll.position.maxScrollExtent,
+    );
+    if (position != _scroll.offset) {
+      _scroll.jumpTo(position);
+    }
+  }
+
+  void _beginDrag(SSHStore store, ManagedMapping rule) {
+    _selectionFocus.requestFocus();
+    _dragCancelled = false;
+    setState(() {
+      if (!_selected.contains(rule)) {
+        _selected
+          ..clear()
+          ..add(rule);
+      }
+      _anchor = rule;
+      _leader = rule;
+      _dragging = store.mappings.where(_selected.contains).toList();
+    });
+    _lastTick = null;
+    _scrollTicker.start();
+  }
+
+  void _endDrag(SSHStore store) {
+    final drop = _dragCancelled ? null : _findDrop();
+    final moving = _dragging.toList();
+    _scrollTicker.stop();
+    setState(() {
+      _dragging = [];
+      _leader = null;
+      _drop = null;
+      _pointer = null;
+    });
+    if (drop != null) {
+      setState(() => _collapsed.remove(drop.group));
+      unawaited(
+        store.moveMappings(
+          moving,
+          drop.group,
+          target: drop.target,
+          after: drop.after,
+        ),
+      );
+    }
+  }
+
+  Future<void> _startSelection(SSHStore store) async {
+    await _showStartErrors(await store.startMappings(_scope(store)));
+  }
+
+  Future<void> _showStartErrors(List<String> errors) async {
+    if (errors.isEmpty || !mounted) return;
+    await showHarborDialog(
+      context: context,
+      builder: (dialogContext) => HarborAlert(
+        appIcon: const Icon(CupertinoIcons.exclamationmark_triangle),
+        title: const Text('Some mappings could not start'),
+        message: Text(errors.join('\n')),
+        primaryButton: HarborButton(
+          label: 'OK',
+          onPressed: () => Navigator.pop(dialogContext),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollTicker.dispose();
+    _selectionFocus.dispose();
+    _searchFocus.dispose();
+    _scroll.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _newGroup(
+    SSHStore store, {
+    ManagedMapping? mapping,
+    List<ManagedMapping>? selection,
+  }) async {
+    final moving =
+        selection ??
+        (mapping == null
+            ? <ManagedMapping>[]
+            : _selected.contains(mapping)
+            ? _scope(store)
+            : [mapping]);
+    final controller = TextEditingController();
+    String? error(String name) {
+      if (name.trim().isEmpty) return 'Enter a group name.';
+      if (name.trim() == 'Ungrouped') return 'This name is reserved.';
+      if (store.mappingGroupNames.contains(name.trim())) {
+        return 'This group already exists.';
+      }
+      return null;
+    }
+
+    final name = await showHarborDialog<String>(
+      context: context,
+      builder: (dialogContext) => HarborAlert(
+        appIcon: const Icon(CupertinoIcons.folder_badge_plus),
+        title: const Text('New mapping group'),
+        message: HarborTextField(
+          controller: controller,
+          autofocus: true,
+          placeholder: 'Group name',
+          validator: error,
+          onSubmitted: (value) {
+            if (error(value) == null) {
+              Navigator.pop(dialogContext, value.trim());
+            }
+          },
+        ),
+        secondaryButton: HarborButton(
+          label: 'Cancel',
+          secondary: true,
+          onPressed: () => Navigator.pop(dialogContext),
+        ),
+        primaryButton: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: controller,
+          builder: (_, value, __) => HarborButton(
+            label: 'Create group',
+            onPressed: error(value.text) == null
+                ? () => Navigator.pop(dialogContext, value.text.trim())
+                : null,
+          ),
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    controller.dispose();
+    if (name == null) return;
+    await store.createMappingGroup(name);
+    if (mapping != null) {
+      await store.moveMappings(moving, name);
+    }
+    if (mounted) {
+      _searchController.clear();
+      setState(() {
+        _query = '';
+        _tag = null;
+        _collapsed.remove(name);
+      });
+    }
+  }
+
+  Future<void> _removeGroup(SSHStore store, String group) async {
+    final confirmed = await showHarborDialog<bool>(
+      context: context,
+      builder: (dialogContext) => HarborAlert(
+        appIcon: const Icon(CupertinoIcons.folder_badge_minus),
+        title: const Text('Remove mapping group?'),
+        message: Text(
+          'Mappings in “$group” will move to Ungrouped. Running connections will stay active.',
+        ),
+        secondaryButton: HarborButton(
+          label: 'Cancel',
+          secondary: true,
+          onPressed: () => Navigator.pop(dialogContext, false),
+        ),
+        primaryButton: HarborButton(
+          label: 'Remove group',
+          color: CupertinoColors.destructiveRed,
+          onPressed: () => Navigator.pop(dialogContext, true),
+        ),
+      ),
+    );
+    if (confirmed == true) await store.renameMappingGroup(group, '');
+  }
+
+  Future<void> _toggleMapping(SSHStore store, ManagedMapping mapping) async {
+    if (store.mappingLoading(mapping)) {
+      await store.stopMapping(mapping);
+      return;
+    }
+    final error = await store.toggleMapping(mapping);
+    if (error != null && mounted) {
+      await showHarborDialog(
+        context: context,
+        builder: (dialogContext) => HarborAlert(
+          appIcon: const Icon(CupertinoIcons.exclamationmark_triangle),
+          title: const Text('Could not start mapping'),
+          message: Text(error),
+          primaryButton: HarborButton(
+            label: 'OK',
+            onPressed: () => Navigator.pop(dialogContext),
+          ),
+        ),
+      );
+    }
+  }
+
+  void _showContextMenu(
+    Offset position,
+    SSHStore store, {
+    ManagedMapping? mapping,
+    String? group,
+  }) {
+    if (mapping != null && !_selected.contains(mapping)) {
+      setState(() {
+        _selected
+          ..clear()
+          ..add(mapping);
+        _anchor = mapping;
+      });
+    }
+    final selection = _scope(store);
+    final navigator = Navigator.of(context);
+    void perform(VoidCallback action) {
+      navigator.pop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) action();
+      });
+    }
+
+    final currentGroup = mapping?.group ?? group ?? '';
+    final members = group == null
+        ? <ManagedMapping>[]
+        : store.mappings.where((rule) => rule.group == group).toList();
+    final entries = <HarborMenuEntry>[
+      if (mapping != null) ...[
+        HarborMenuEntry(
+          'Edit mapping…',
+          CupertinoIcons.pencil,
+          onSelected: store.mappingLoading(mapping) || store.hosts.isEmpty
+              ? null
+              : () => perform(
+                  () => showAddMappingDialog(
+                    context,
+                    store,
+                    initialMapping: mapping,
+                  ),
+                ),
+        ),
+        HarborMenuEntry(
+          store.mappingRunning(mapping) || store.mappingLoading(mapping)
+              ? (selection.length > 1 ? 'Stop selected' : 'Stop mapping')
+              : (selection.length > 1 ? 'Start selected' : 'Start mapping'),
+          store.mappingRunning(mapping) || store.mappingLoading(mapping)
+              ? CupertinoIcons.stop_fill
+              : CupertinoIcons.play_fill,
+          onSelected: () => perform(() async {
+            if (selection.length == 1) {
+              await _toggleMapping(store, mapping);
+            } else if (store.mappingRunning(mapping) ||
+                store.mappingLoading(mapping)) {
+              for (final rule in selection) {
+                await store.stopMapping(rule);
+              }
+            } else {
+              await _showStartErrors(await store.startMappings(selection));
+            }
+          }),
+        ),
+        HarborMenuEntry(
+          'Move to group',
+          CupertinoIcons.folder,
+          children: [
+            for (final name in store.mappingGroupNames)
+              HarborMenuEntry(
+                name,
+                CupertinoIcons.folder,
+                checked: mapping.group == name,
+                onSelected: () =>
+                    perform(() => store.moveMappings(selection, name)),
+              ),
+            HarborMenuEntry(
+              'Ungrouped',
+              CupertinoIcons.tray,
+              checked: mapping.group.isEmpty,
+              onSelected: () =>
+                  perform(() => store.moveMappings(selection, '')),
+            ),
+            const HarborMenuEntry.separator(),
+            HarborMenuEntry(
+              'New group…',
+              CupertinoIcons.folder_badge_plus,
+              onSelected: () => perform(
+                () => _newGroup(store, mapping: mapping, selection: selection),
+              ),
+            ),
+          ],
+        ),
+        HarborMenuEntry(
+          'Copy mapping value',
+          CupertinoIcons.doc_on_doc,
+          onSelected: () => perform(
+            () => Clipboard.setData(ClipboardData(text: mapping.value)),
+          ),
+        ),
+        const HarborMenuEntry.separator(),
+      ],
+      HarborMenuEntry(
+        'New mapping',
+        CupertinoIcons.plus,
+        onSelected: store.hosts.isEmpty
+            ? null
+            : () => perform(
+                () => showAddMappingDialog(
+                  context,
+                  store,
+                  initialGroup: currentGroup,
+                ),
+              ),
+      ),
+      HarborMenuEntry(
+        'New group…',
+        CupertinoIcons.folder_badge_plus,
+        onSelected: () => perform(() => _newGroup(store)),
+      ),
+      if (mapping == null && group != null) ...[
+        const HarborMenuEntry.separator(),
+        HarborMenuEntry(
+          'Start group',
+          CupertinoIcons.play_fill,
+          onSelected:
+              members.any(
+                (rule) =>
+                    !store.mappingRunning(rule) && !store.mappingLoading(rule),
+              )
+              ? () => perform(() => _startGroup(store, group))
+              : null,
+        ),
+        HarborMenuEntry(
+          'Stop group',
+          CupertinoIcons.stop_fill,
+          onSelected:
+              members.any(
+                (rule) =>
+                    store.mappingRunning(rule) || store.mappingLoading(rule),
+              )
+              ? () => perform(() => store.stopMappingGroup(group))
+              : null,
+        ),
+        if (group.isNotEmpty) ...[
+          const HarborMenuEntry.separator(),
+          HarborMenuEntry(
+            'Rename group…',
+            CupertinoIcons.pencil,
+            onSelected: () => perform(() => _editGroup(store, group)),
+          ),
+          HarborMenuEntry(
+            'Remove group…',
+            CupertinoIcons.folder_badge_minus,
+            destructive: true,
+            onSelected: () => perform(() => _removeGroup(store, group)),
+          ),
+        ],
+      ],
+      if (mapping != null) ...[
+        const HarborMenuEntry.separator(),
+        HarborMenuEntry(
+          selection.length > 1 ? 'Remove selected mappings' : 'Remove mapping',
+          CupertinoIcons.trash,
+          destructive: true,
+          onSelected: () => perform(() async {
+            for (final rule in selection) {
+              await store.removeMapping(rule);
+            }
+            if (mounted) _clearSelection();
+          }),
+        ),
+      ],
+    ];
+    _menuOpen = true;
+    navigator
+        .push(
+          PageRouteBuilder<void>(
+            opaque: false,
+            barrierDismissible: true,
+            barrierColor: Colors.transparent,
+            transitionDuration: harborMotion(context, 130),
+            reverseTransitionDuration: harborMotion(context, 110),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) =>
+                    FadeTransition(
+                      opacity: CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
+                      child: child,
+                    ),
+            pageBuilder: (_, __, ___) => HarborContextMenu(
+              position: position,
+              entries: entries,
+              onDismiss: navigator.pop,
+            ),
+          ),
+        )
+        .whenComplete(() {
+          _menuOpen = false;
+        });
+  }
+
+  Future<void> _editGroup(SSHStore store, String group) async {
+    final controller = TextEditingController(text: group);
+    final next = await showHarborDialog<String>(
+      context: context,
+      builder: (dialogContext) => HarborAlert(
+        appIcon: const Icon(CupertinoIcons.folder),
+        title: const Text('Edit mapping group'),
+        message: HarborTextField(
+          controller: controller,
+          autofocus: true,
+          placeholder: 'Group name',
+          onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+        ),
+        tertiaryButton: HarborButton(
+          label: 'Ungroup',
+          secondary: true,
+          onPressed: () => Navigator.pop(dialogContext, ''),
+        ),
+        secondaryButton: HarborButton(
+          label: 'Cancel',
+          secondary: true,
+          onPressed: () => Navigator.pop(dialogContext),
+        ),
+        primaryButton: HarborButton(
+          label: 'Save group',
+          onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    controller.dispose();
+    if (next != null) {
+      await store.renameMappingGroup(group, next);
+      if (mounted) setState(() => _collapsed.remove(group));
+    }
+  }
+
+  Future<void> _startGroup(SSHStore store, String group) async {
+    await _showStartErrors(await store.startMappingGroup(group));
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = context.watch<SSHStore>();
     final colors = HarborColors.of(context);
-    final rules = store.mappings;
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          HarborPageHeader(
-            title: 'Port forwarding',
-            subtitle:
-                '${rules.length} mappings · Saved automatically in Harbor',
-            secondaryAction: HarborButton(
-              label: 'Stop all',
-              secondary: true,
-              fullWidth: true,
-              onPressed: store.mappings.any(store.mappingRunning)
-                  ? () async {
-                      for (final mapping in store.mappings) {
-                        await store.stopMapping(mapping);
-                      }
-                    }
-                  : null,
-            ),
-            primaryAction: HarborButton(
-              label: 'Add mapping',
-              icon: CupertinoIcons.plus,
-              fullWidth: true,
-              onPressed: store.hosts.isEmpty
-                  ? null
-                  : () => showAddMappingDialog(context, store),
+    final tags = store.mappings.expand((rule) => rule.tags).toSet().toList()
+      ..sort();
+    final selectedTag = tags.contains(_tag) ? _tag : null;
+    final query = _query.trim().toLowerCase();
+    final rules = store.mappings
+        .where(
+          (rule) =>
+              (selectedTag == null || rule.tags.contains(selectedTag)) &&
+              (query.isEmpty ||
+                  '${rule.serverAlias} ${rule.group} ${rule.tags.join(' ')} ${rule.value}'
+                      .toLowerCase()
+                      .contains(query)),
+        )
+        .toList();
+    final groups =
+        {
+          ...rules.map((rule) => rule.group),
+          if (query.isEmpty && selectedTag == null) ...store.mappingGroupNames,
+        }.toList()..sort(
+          (a, b) => a.isEmpty
+              ? 1
+              : b.isEmpty
+              ? -1
+              : a.compareTo(b),
+        );
+    _selected.removeWhere((rule) => !rules.contains(rule));
+    _visible = [
+      for (final group in groups)
+        if (!_collapsed.contains(group))
+          ...rules.where((rule) => rule.group == group),
+    ];
+    _rowKeys.removeWhere((rule, _) => !store.mappings.contains(rule));
+    _groupKeys.removeWhere((group, _) => !groups.contains(group));
+    final scope = _scope(store);
+    return TapRegion(
+      onTapOutside: (_) {
+        if (!_menuOpen) _clearSelection();
+      },
+      child: Focus(
+        focusNode: _selectionFocus,
+        onFocusChange: (focused) {
+          if (!focused && mounted && !_menuOpen) _clearSelection();
+        },
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.escape) {
+            _dragCancelled = true;
+            setState(() => _drop = null);
+            _clearSelection();
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.keyA &&
+              (HardwareKeyboard.instance.isMetaPressed ||
+                  HardwareKeyboard.instance.isControlPressed) &&
+              !_searchFocus.hasFocus) {
+            setState(() => _selected.addAll(_visible));
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Listener(
+          onPointerCancel: (_) => _dragCancelled = true,
+          child: LayoutBuilder(
+            builder: (context, constraints) => GestureDetector(
+              key: _viewport,
+              behavior: HitTestBehavior.opaque,
+              onTap: _clearSelection,
+              onSecondaryTapUp: (details) =>
+                  _showContextMenu(details.globalPosition, store),
+              child: SingleChildScrollView(
+                controller: _scroll,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight.isFinite
+                        ? constraints.maxHeight
+                        : 0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      HarborPageHeader(
+                        title: 'Port forwarding',
+                        subtitle:
+                            '${store.mappings.length} independent mappings · ${groups.length} groups',
+                        secondaryAction: HarborButton(
+                          label: 'Stop all',
+                          secondary: true,
+                          fullWidth: true,
+                          onPressed:
+                              scope.any(
+                                (rule) =>
+                                    store.mappingRunning(rule) ||
+                                    store.mappingLoading(rule),
+                              )
+                              ? () async {
+                                  for (final rule in scope) {
+                                    await store.stopMapping(rule);
+                                  }
+                                }
+                              : null,
+                        ),
+                        primaryAction: HarborButton(
+                          label: 'Add mapping',
+                          icon: CupertinoIcons.plus,
+                          fullWidth: true,
+                          onPressed: store.hosts.isEmpty
+                              ? null
+                              : () => showAddMappingDialog(context, store),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          HarborButton(
+                            key: const ValueKey('mapping-start-all'),
+                            label: 'Start all',
+                            icon: CupertinoIcons.play_fill,
+                            secondary: true,
+                            onPressed:
+                                scope.any(
+                                  (rule) =>
+                                      !store.mappingRunning(rule) &&
+                                      !store.mappingLoading(rule),
+                                )
+                                ? () => _startSelection(store)
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              _selected.isEmpty
+                                  ? 'All mappings'
+                                  : '${_selected.length} selected',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.muted,
+                              ),
+                            ),
+                          ),
+                          if (_selected.isNotEmpty)
+                            CupertinoButton(
+                              padding: const EdgeInsets.all(6),
+                              minimumSize: Size.zero,
+                              onPressed: _clearSelection,
+                              child: const Text(
+                                'Clear selection',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      HarborTextField(
+                        controller: _searchController,
+                        focusNode: _searchFocus,
+                        placeholder: 'Search servers, groups, tags or ports…',
+                        onChanged: (value) => setState(() {
+                          _query = value;
+                          _selected.clear();
+                          _anchor = null;
+                        }),
+                      ),
+                      if (tags.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            for (final tag in <String?>[null, ...tags])
+                              CupertinoButton(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                minimumSize: Size.zero,
+                                color: selectedTag == tag
+                                    ? colors.accent.withValues(alpha: 0.13)
+                                    : colors.surface,
+                                onPressed: () => setState(() {
+                                  _tag = tag;
+                                  _selected.clear();
+                                  _anchor = null;
+                                }),
+                                child: Text(
+                                  tag == null ? 'All tags' : '#$tag',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: colors.text,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      if (groups.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            store.mappings.isEmpty
+                                ? 'Add an independent mapping, then assign a group and tags.'
+                                : 'No mappings match this search.',
+                            style: TextStyle(fontSize: 13, color: colors.muted),
+                          ),
+                        ),
+                      for (final group in groups) ...[
+                        _groupHeader(context, store, group),
+                        const SizedBox(height: 10),
+                        TweenAnimationBuilder<double>(
+                          key: ValueKey('mapping-collapse:$group'),
+                          tween: Tween(end: _collapsed.contains(group) ? 0 : 1),
+                          duration: harborMotion(context, 280),
+                          curve: Curves.easeInOutCubic,
+                          builder: (_, factor, child) => ClipRect(
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              heightFactor: factor,
+                              child: Offstage(
+                                offstage: factor == 0,
+                                child: IgnorePointer(
+                                  ignoring: _collapsed.contains(group),
+                                  child: ExcludeFocus(
+                                    excluding: _collapsed.contains(group),
+                                    child: ExcludeSemantics(
+                                      excluding: _collapsed.contains(group),
+                                      child: child!,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          child: _MappingSelectionList(
+                            rules: rules
+                                .where((rule) => rule.group == group)
+                                .toList(),
+                            selected: _selected.length == 1
+                                ? _selected.single
+                                : null,
+                            builder: (rule) =>
+                                _draggableRow(context, store, rule),
+                          ),
+                        ),
+                        if (!_collapsed.contains(group) &&
+                            !rules.any((rule) => rule.group == group))
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                              'No mappings in this group. Right-click its header to add one.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colors.muted,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 14),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 24),
-          if (rules.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+  Widget _groupHeader(BuildContext context, SSHStore store, String group) {
+    final rules = store.mappings.where((rule) => rule.group == group).toList();
+    final loading = rules.any(store.mappingLoading);
+    final active = rules.any(
+      (rule) => store.mappingRunning(rule) || store.mappingLoading(rule),
+    );
+    final allRunning = rules.every(store.mappingRunning);
+    final running = rules.where(store.mappingRunning).length;
+    final highlighted = _drop?.group == group && _drop?.target == null;
+    return AnimatedContainer(
+      key: _groupKeys.putIfAbsent(group, GlobalKey.new),
+      duration: harborMotion(context, 160),
+      decoration: BoxDecoration(
+        color: highlighted
+            ? HarborColors.of(context).dropTint
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: highlighted
+              ? HarborColors.of(context).accent
+              : Colors.transparent,
+        ),
+      ),
+      child: GestureDetector(
+        key: ValueKey('mapping-group:$group'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() {
+          _selected.clear();
+          _anchor = null;
+          if (!_collapsed.remove(group)) _collapsed.add(group);
+        }),
+        onSecondaryTapUp: (details) =>
+            _showContextMenu(details.globalPosition, store, group: group),
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CupertinoButton(
+                  padding: const EdgeInsets.only(right: 8),
+                  minimumSize: Size.zero,
+                  onPressed: () => setState(() {
+                    _selected.clear();
+                    _anchor = null;
+                    if (!_collapsed.remove(group)) _collapsed.add(group);
+                  }),
+                  child: AnimatedRotation(
+                    turns: _collapsed.contains(group) ? -0.25 : 0,
+                    duration: harborMotion(context, 220),
+                    curve: Curves.easeInOutCubic,
+                    child: const Icon(CupertinoIcons.chevron_down, size: 14),
+                  ),
+                ),
+                Flexible(
+                  child: Text(
+                    group.isEmpty ? 'Ungrouped' : group,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '$running/${rules.length} running',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                HarborButton(
+                  label: 'Start group',
+                  secondary: true,
+                  busy: loading,
+                  onPressed: rules.isEmpty || allRunning || loading
+                      ? null
+                      : () => _startGroup(store, group),
+                ),
+                HarborButton(
+                  label: 'Stop group',
+                  secondary: true,
+                  onPressed: active
+                      ? () => store.stopMappingGroup(group)
+                      : null,
+                ),
+                CupertinoButton(
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: Size.zero,
+                  onPressed: store.hosts.isEmpty
+                      ? null
+                      : () => showAddMappingDialog(
+                          context,
+                          store,
+                          initialGroup: group,
+                        ),
+                  child: const Icon(CupertinoIcons.plus, size: 16),
+                ),
+                if (group.isNotEmpty)
+                  CupertinoButton(
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: Size.zero,
+                    onPressed: () => _editGroup(store, group),
+                    child: const Icon(CupertinoIcons.pencil, size: 16),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _draggableRow(
+    BuildContext context,
+    SSHStore store,
+    ManagedMapping rule,
+  ) {
+    final folded = _dragging.contains(rule) && _leader != rule;
+    final insertion = _drop?.target == rule;
+    return AnimatedSize(
+      duration: harborMotion(context, 220),
+      curve: Curves.easeInOutCubic,
+      alignment: Alignment.topCenter,
+      child: Align(
+        heightFactor: folded ? 0 : 1,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: LayoutBuilder(
+            builder: (context, constraints) => Draggable<ManagedMapping>(
+              data: rule,
+              allowedButtonsFilter: (buttons) => buttons == 1,
+              onDragStarted: () => _beginDrag(store, rule),
+              onDragUpdate: (details) {
+                _pointer = details.globalPosition;
+                _updateDrop();
+              },
+              onDragEnd: (_) => _endDrag(store),
+              feedback: _MappingDragPreview(
+                rule: rule,
+                count: _selected.contains(rule) ? _selected.length : 1,
+                width: constraints.maxWidth.clamp(240, 600),
               ),
-              child: Text(
-                store.hosts.isEmpty
-                    ? 'Add a server connection first, then create a port mapping here.'
-                    : 'No mappings yet. Add a local forward or a SOCKS proxy.',
-                style: TextStyle(fontSize: 13, color: colors.muted),
+              childWhenDragging: Opacity(
+                opacity: 0.3,
+                child: _mappingRow(context, store, rule),
+              ),
+              child: Stack(
+                key: _rowKeys.putIfAbsent(rule, GlobalKey.new),
+                clipBehavior: Clip.none,
+                children: [
+                  _mappingRow(context, store, rule),
+                  if (insertion)
+                    Positioned(
+                      key: const ValueKey('mapping-insertion-line'),
+                      left: 0,
+                      right: 0,
+                      top: _drop!.after ? null : -6,
+                      bottom: _drop!.after ? -6 : null,
+                      height: 2,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: HarborColors.of(context).accent,
+                            borderRadius: BorderRadius.circular(1),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-          for (final rule in rules)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _mappingRow(context, store, rule),
-            ),
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -3188,128 +4291,173 @@ class HarborForwardingPage extends StatelessWidget {
     final colors = HarborColors.of(context);
     final running = store.mappingRunning(rule);
     final loading = store.mappingLoading(rule);
-    return Container(
-      key: ValueKey('mapping:${rule.id}'),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colors.border.withValues(alpha: 0.6)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: HarborColors.teal.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(
-              rule.type == 'D'
-                  ? CupertinoIcons.globe
-                  : CupertinoIcons.arrow_right_arrow_left,
-              size: 17,
-              color: HarborColors.teal,
+    return Semantics(
+      selected: _selected.contains(rule),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _select(rule),
+        onSecondaryTapUp: (details) =>
+            _showContextMenu(details.globalPosition, store, mapping: rule),
+        child: AnimatedContainer(
+          duration: harborMotion(context, 180),
+          key: ValueKey('mapping:${rule.id}'),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _selected.length > 1 && _selected.contains(rule)
+                ? Color.alphaBlend(colors.selectionTint, colors.surface)
+                : colors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _selected.contains(rule)
+                  ? colors.accent.withValues(alpha: 0.85)
+                  : colors.border.withValues(alpha: 0.6),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${rule.serverAlias} · ${rule.type == 'D'
-                      ? 'SOCKS5 proxy'
-                      : rule.type == 'R'
-                      ? 'Remote forward'
-                      : 'Local forward'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: colors.text,
-                  ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: HarborColors.teal.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9),
                 ),
-                const SizedBox(height: 5),
-                SelectableText(
+                child: Icon(
                   rule.type == 'D'
-                      ? 'localhost:${rule.value}'
-                      : '${rule.type == 'R' ? 'Server' : 'Mac'} ${rule.value.split(':').first} → ${rule.value.substring(rule.value.indexOf(':') + 1)}',
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'Menlo',
+                      ? CupertinoIcons.globe
+                      : CupertinoIcons.arrow_right_arrow_left,
+                  size: 17,
+                  color: HarborColors.teal,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${rule.serverAlias} · ${rule.type == 'D'
+                          ? 'SOCKS5 proxy'
+                          : rule.type == 'R'
+                          ? 'Remote forward'
+                          : 'Local forward'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: colors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      rule.type == 'D'
+                          ? 'localhost:${rule.value}'
+                          : '${rule.type == 'R' ? 'Server' : 'Mac'} ${rule.value.split(':').first} → ${rule.value.substring(rule.value.indexOf(':') + 1)}',
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'Menlo',
+                        color: colors.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    if (rule.tags.isNotEmpty) ...[
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          for (final tag in rule.tags)
+                            GestureDetector(
+                              onTap: () => setState(() {
+                                _tag = tag;
+                                _selected.clear();
+                                _anchor = null;
+                              }),
+                              child: Text(
+                                '#$tag',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: colors.accent,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                    ],
+                    Text(
+                      loading
+                          ? 'Starting…'
+                          : running
+                          ? 'Running'
+                          : 'Stopped',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: running ? HarborColors.teal : colors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 120,
+                child: HarborButton(
+                  fullWidth: true,
+                  label: loading
+                      ? 'Starting…'
+                      : running
+                      ? 'Stop'
+                      : 'Start',
+                  secondary: true,
+                  icon: running
+                      ? CupertinoIcons.stop_fill
+                      : CupertinoIcons.play_fill,
+                  busy: loading,
+                  onPressed: () => _toggleMapping(store, rule),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Edit mapping',
+                child: CupertinoButton(
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: Size.zero,
+                  onPressed: loading || store.hosts.isEmpty
+                      ? null
+                      : () => showAddMappingDialog(
+                          context,
+                          store,
+                          initialMapping: rule,
+                        ),
+                  child: Icon(
+                    CupertinoIcons.pencil,
+                    size: 15,
                     color: colors.muted,
                   ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  loading
-                      ? 'Starting…'
-                      : running
-                      ? 'Running'
-                      : 'Stopped',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: running ? HarborColors.teal : colors.muted,
+              ),
+              Tooltip(
+                message: 'Remove mapping',
+                child: CupertinoButton(
+                  padding: const EdgeInsets.all(8),
+                  minimumSize: Size.zero,
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          await store.removeMapping(rule);
+                        },
+                  child: Icon(
+                    CupertinoIcons.trash,
+                    size: 15,
+                    color: colors.muted,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 120,
-            child: HarborButton(
-              fullWidth: true,
-              label: loading
-                  ? 'Starting…'
-                  : running
-                  ? 'Stop'
-                  : 'Start',
-              secondary: true,
-              icon: running
-                  ? CupertinoIcons.stop_fill
-                  : CupertinoIcons.play_fill,
-              busy: loading,
-              onPressed: () async {
-                final error = await store.toggleMapping(rule);
-                if (error != null && context.mounted) {
-                  showHarborDialog(
-                    context: context,
-                    builder: (dialogContext) => HarborAlert(
-                      appIcon: const Icon(
-                        CupertinoIcons.exclamationmark_triangle,
-                      ),
-                      title: const Text('Could not start mapping'),
-                      message: Text(error),
-                      primaryButton: HarborButton(
-                        label: 'OK',
-                        onPressed: () => Navigator.pop(dialogContext),
-                      ),
-                    ),
-                  );
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 6),
-          Tooltip(
-            message: 'Remove mapping',
-            child: CupertinoButton(
-              padding: const EdgeInsets.all(8),
-              minimumSize: Size.zero,
-              onPressed: loading
-                  ? null
-                  : () async {
-                      await store.removeMapping(rule);
-                    },
-              child: Icon(CupertinoIcons.trash, size: 15, color: colors.muted),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -3469,11 +4617,7 @@ class _HarborServerPickerState extends State<_HarborServerPicker> {
     final store = context.watch<SSHStore>();
     final colors = HarborColors.of(context);
     final hosts = store.hosts
-        .where(
-          (host) => '${host.hostAlias} ${host.hostName} ${store.groupFor(host)}'
-              .toLowerCase()
-              .contains(query.toLowerCase()),
-        )
+        .where((host) => store.matchesHost(host, query))
         .toList();
     return Focus(
       onKeyEvent: (_, event) {
@@ -3620,12 +4764,42 @@ class _HarborServerPickerState extends State<_HarborServerPicker> {
   }
 }
 
-Future<void> showAddMappingDialog(BuildContext context, SSHStore store) async {
-  var host = store.hosts.first;
-  final port = TextEditingController();
-  final remote = TextEditingController(text: 'localhost');
-  final remotePort = TextEditingController();
-  var type = 'L';
+Future<void> showAddMappingDialog(
+  BuildContext context,
+  SSHStore store, {
+  SSHHost? initialHost,
+  HarborForwardRule? initialRule,
+  Future<void> Function(HarborForwardRule)? onSave,
+  bool allowRemote = true,
+  ManagedMapping? initialMapping,
+  String initialGroup = '',
+}) async {
+  initialRule ??= initialMapping == null
+      ? null
+      : HarborForwardRule(initialMapping.type, initialMapping.value);
+  var host =
+      initialHost ??
+      store.hosts
+          .where((host) => host.hostAlias == initialMapping?.serverAlias)
+          .firstOrNull ??
+      store.hosts.first;
+  final group = TextEditingController(
+    text: initialMapping?.group ?? initialGroup,
+  );
+  final tags = TextEditingController(
+    text: initialMapping?.tags.join(', ') ?? '',
+  );
+  final parts = initialRule?.value.split(':') ?? <String>[];
+  final port = TextEditingController(text: parts.firstOrNull ?? '');
+  final remote = TextEditingController(
+    text: parts.length >= 3
+        ? parts.sublist(1, parts.length - 1).join(':')
+        : 'localhost',
+  );
+  final remotePort = TextEditingController(
+    text: parts.length >= 3 ? parts.last : '',
+  );
+  var type = initialRule?.type ?? 'L';
   var edited = false;
   final rule = await showHarborDialog<HarborForwardRule>(
     context: context,
@@ -3654,24 +4828,29 @@ Future<void> showAddMappingDialog(BuildContext context, SSHStore store) async {
 
         return HarborAlert(
           appIcon: const Icon(CupertinoIcons.arrow_right_arrow_left),
-          title: const Text('Add port mapping'),
+          title: Text(
+            initialRule == null ? 'Add port mapping' : 'Edit port mapping',
+          ),
           message: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Server'),
               const SizedBox(height: 6),
-              HarborServerSelector(
-                value: host,
-                onChanged: (server) => update(() => host = server),
-              ),
+              if (initialHost != null)
+                Text(host.hostAlias)
+              else
+                HarborServerSelector(
+                  value: host,
+                  onChanged: (server) => update(() => host = server),
+                ),
               const SizedBox(height: 16),
               HarborSegmentedControl<String>(
                 groupValue: type,
-                children: const {
-                  'L': Text('Local'),
-                  'D': Text('SOCKS'),
-                  'R': Text('Remote'),
+                children: {
+                  'L': const Text('Local'),
+                  'D': const Text('SOCKS'),
+                  if (allowRemote) 'R': const Text('Remote'),
                 },
                 onValueChanged: (value) => update(() {
                   type = value!;
@@ -3713,6 +4892,35 @@ Future<void> showAddMappingDialog(BuildContext context, SSHStore store) async {
                   onSubmitted: (_) => submit(),
                 ),
               ],
+              if (onSave == null) ...[
+                const SizedBox(height: 12),
+                const Text('Group'),
+                const SizedBox(height: 6),
+                HarborTextField(controller: group, placeholder: 'Ungrouped'),
+                if (store.mappingGroupNames.isNotEmpty)
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final name in store.mappingGroupNames)
+                        CupertinoButton(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          minimumSize: Size.zero,
+                          onPressed: () => group.text = name,
+                          child: Text(
+                            name,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                    ],
+                  ),
+                const SizedBox(height: 12),
+                const Text('Tags (comma separated)'),
+                const SizedBox(height: 6),
+                HarborTextField(
+                  controller: tags,
+                  placeholder: 'work, database',
+                ),
+              ],
               if (edited && error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 10),
@@ -3732,7 +4940,7 @@ Future<void> showAddMappingDialog(BuildContext context, SSHStore store) async {
             onPressed: () => Navigator.pop(dialogContext),
           ),
           primaryButton: HarborButton(
-            label: 'Add mapping',
+            label: initialRule == null ? 'Add mapping' : 'Save mapping',
             onPressed: error == null ? submit : null,
           ),
         );
@@ -3740,11 +4948,34 @@ Future<void> showAddMappingDialog(BuildContext context, SSHStore store) async {
     ),
   );
   await Future<void>.delayed(const Duration(milliseconds: 150));
+  final groupValue = group.text.trim();
+  final tagValues = tags.text.split(RegExp('[,，]'));
+  group.dispose();
+  tags.dispose();
   port.dispose();
   remote.dispose();
   remotePort.dispose();
   if (rule != null) {
-    await store.addMapping(host.hostAlias, rule.type, rule.value);
+    if (onSave != null) {
+      await onSave(rule);
+    } else if (initialMapping != null) {
+      await store.updateMapping(
+        initialMapping,
+        host.hostAlias,
+        rule.type,
+        rule.value,
+        group: groupValue,
+        tags: tagValues,
+      );
+    } else {
+      await store.addMapping(
+        host.hostAlias,
+        rule.type,
+        rule.value,
+        group: groupValue,
+        tags: tagValues,
+      );
+    }
   }
 }
 
