@@ -14,7 +14,7 @@ dependencies:
   # State management
   provider: ^6.0.0
   # Path handling
-  path_provider: ^2.1.1
+  path_provider: ^2.1.6
   path: ^1.8.3
   # Icon font
   cupertino_icons: ^1.0.2
