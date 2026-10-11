@@ -43,6 +43,12 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.version(self.root)
 
+    def test_public_beta_tag_matches_semver(self):
+        (self.root / 'pubspec.yaml').write_text('version: 1.0.1-beta+3\n')
+        self.assertEqual(release.preflight('beta-1.0.1', root=self.root), ('1.0.1-beta', '3'))
+        with self.assertRaises(ValueError):
+            release.preflight('beta-1.0.2', root=self.root)
+
     def test_checksums_are_deterministic_and_detect_changes(self):
         first, second = self.root / 'a.zip', self.root / 'b.dmg'
         first.write_bytes(b'first')

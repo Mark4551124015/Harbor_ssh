@@ -29,7 +29,10 @@ def version(root=ROOT):
 
 def preflight(tag, official=False, root=ROOT):
     release, build = version(root)
-    if tag != f'v{release}':
+    allowed_tags = {f'v{release}'}
+    if release.endswith('-beta'):
+        allowed_tags.add(f'beta-{release.removesuffix("-beta")}')
+    if tag not in allowed_tags:
         raise ValueError(f'Tag must match pubspec version: v{release}')
     app_info = (root / 'macos/Runner/Configs/AppInfo.xcconfig').read_text()
     if 'com.example' in app_info:

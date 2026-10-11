@@ -1,7 +1,7 @@
 name: Release
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'beta-*']
   workflow_dispatch:
     inputs:
       tag:
@@ -102,18 +102,18 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
-          # Prerelease status follows the tag, not the signing status: v1.0.0-beta.1 is a
-          # prerelease, v1.0.0 is a normal release. Unsigned is the default release path.
+          # beta-* is the public beta channel, published as a normal Release.
           case "$RELEASE_TAG" in
+            beta-*) PRERELEASE="--prerelease=false" ;;
             *-*) PRERELEASE="--prerelease" ;;
-            *)   PRERELEASE="" ;;
+            *) PRERELEASE="--prerelease=false" ;;
           esac
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > existing.txt 2>/dev/null; then
             test "$(cat existing.txt)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes \
-              --title "Harbor $RELEASE_TAG" $PRERELEASE
+              --title "$RELEASE_TAG" $PRERELEASE
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
           # Publish only after the assets are in place, so the release is never visible empty.
-          gh release edit "$RELEASE_TAG" --draft=false
+          gh release edit "$RELEASE_TAG" --draft=false $PRERELEASE

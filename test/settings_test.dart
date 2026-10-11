@@ -425,7 +425,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('LOCAL WORKSPACE'), findsNothing);
-      expect(find.text('v1.0.0'), findsOneWidget);
+      expect(find.text('v${store.applicationVersion}'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('open-settings')));
       await tester.pumpAndSettle();
       expect(find.byType(HarborSettingsPage), findsOneWidget);

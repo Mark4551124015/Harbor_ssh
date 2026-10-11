@@ -1,5 +1,12 @@
 # Changelog
 
+## beta-1.0.1
+
+- Automatic update checks at startup, manual checks in Settings, and in-app installation with checksum verification and restart.
+- Closing a window preserves controllable port mappings; quitting stops all owned mappings, including starts in flight.
+- Startup uses a fixed-size logo over the blurred interface, with a 500 ms hold and 500 ms fade.
+- Published as a normal GitHub Release.
+
 ## 1.0.0-beta.1
 
 First public build. Distributed without a Developer ID, so macOS asks the user to

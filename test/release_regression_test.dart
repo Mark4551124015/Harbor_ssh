@@ -7,6 +7,45 @@ import 'widget_test.dart' show TunnelTestProcess;
 
 void main() {
   test(
+    'Quit stops owned mappings and cancels a mapping still spawning',
+    () async {
+      final ready = TunnelTestProcess();
+      final spawning = Completer<Process>();
+      var starts = 0;
+      final store = SSHStore(
+        load: false,
+        processStarter: (_, __) async {
+          if (starts++ == 0) return ready;
+          return spawning.future;
+        },
+      );
+      store.hosts = [SSHHost(hostAlias: 'lab', hostName: 'example.test')];
+      final running = store.startProxy(
+        'lab',
+        forwardType: 'L',
+        forwardValue: '8080:localhost:80',
+      );
+      await Future<void>.delayed(Duration.zero);
+      ready.output.add(utf8.encode('Entering interactive session.\n'));
+      expect(await running, isNull);
+      final starting = store.startProxy(
+        'lab',
+        forwardType: 'L',
+        forwardValue: '8081:localhost:80',
+      );
+      final shutdown = store.shutdownProxies();
+      expect(ready.killed, isTrue);
+      final late = TunnelTestProcess();
+      spawning.complete(late);
+      await shutdown;
+      expect(await starting, 'Mapping startup cancelled.');
+      expect(late.killed, isTrue);
+      expect(store.isConnected('lab'), isFalse);
+      expect(await store.startProxy('lab'), 'Application is quitting.');
+    },
+  );
+
+  test(
     'Terminal arguments preserve spaces and cannot execute shell substitutions',
     () async {
       final dir = await Directory.systemTemp.createTemp('harbor-command-');

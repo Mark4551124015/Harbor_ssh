@@ -15,6 +15,7 @@ import 'package:path_provider/path_provider.dart';
 part 'harbor_ui.dart';
 part 'key_management.dart';
 part 'settings.dart';
+part 'updates.dart';
 part 'ssh_activity.dart';
 part 'advanced_options.dart';
 
@@ -23,6 +24,13 @@ part 'advanced_options.dart';
 // ----------------------
 void main() {
   runApp(const AppRoot());
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    if (!Platform.isMacOS) return;
+    await WidgetsBinding.instance.waitUntilFirstFrameRasterized;
+    await const MethodChannel(
+      'harbor/files',
+    ).invokeMethod<void>('firstFrameReady');
+  });
 }
 
 // A scroll behavior that never renders a scrollbar.
@@ -170,12 +178,135 @@ class HarborApplication extends StatelessWidget {
               primaryColor: MacosTheme.of(context).primaryColor,
             ),
             child: home is MainWindow
-                ? _HarborResourceWarmup(child: child!)
+                ? _HarborLaunchTransition(
+                    child: _HarborUpdateNotice(
+                      child: _HarborResourceWarmup(child: child!),
+                    ),
+                  )
                 : child!,
           ),
         );
       },
       home: home,
+    );
+  }
+}
+
+class _HarborUpdateNotice extends StatelessWidget {
+  final Widget child;
+  const _HarborUpdateNotice({required this.child});
+  @override
+  Widget build(BuildContext context) {
+    final update = context.select<SSHStore, HarborUpdate?>(
+      (store) => store.availableUpdate,
+    );
+    final colors = HarborColors.of(context);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+        if (update != null)
+          Positioned(
+            top: 44,
+            right: 24,
+            child: IgnorePointer(
+              child: Container(
+                width: 290,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  border: Border.all(color: colors.border),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${update.version} is available.\nInstall from Settings → About.',
+                  style: TextStyle(
+                    color: colors.text,
+                    fontSize: 12,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// Keep the real interface visible behind the launch mark, including its theme.
+class _HarborLaunchTransition extends StatefulWidget {
+  final Widget child;
+  const _HarborLaunchTransition({required this.child});
+  @override
+  State<_HarborLaunchTransition> createState() =>
+      _HarborLaunchTransitionState();
+}
+
+class _HarborLaunchTransitionState extends State<_HarborLaunchTransition>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
+  );
+  bool _finished = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (!MediaQuery.disableAnimationsOf(context)) {
+        await _controller.forward();
+      }
+      if (mounted) setState(() => _finished = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = HarborColors.of(context);
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final remaining = _finished
+            ? 0.0
+            : 1 -
+                  const Interval(
+                    0.5,
+                    1,
+                    curve: Curves.easeInOut,
+                  ).transform(_controller.value);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ImageFiltered(
+              enabled: !_finished,
+              imageFilter: ImageFilter.blur(
+                sigmaX: 14 * remaining,
+                sigmaY: 14 * remaining,
+              ),
+              child: widget.child,
+            ),
+            if (!_finished)
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: colors.background.withValues(
+                      alpha: 0.55 * remaining,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -378,7 +509,12 @@ const _configArchiveBudget = 10 * 1024 * 1024;
 class SSHStore extends ChangeNotifier {
   HarborPreferences preferences = const HarborPreferences();
   bool preferencesLoaded = false;
-  String applicationVersion = '1.0.0';
+  String applicationVersion = '1.0.1';
+  void notifyUpdateListeners() => notifyListeners();
+  HarborUpdate? availableUpdate;
+  bool updateBusy = false;
+  bool updateError = false;
+  String updateStatus = 'Check for new versions of Harbor.';
   String applicationBuild = '1';
   Future<void> updatePreferences(HarborPreferences value) {
     preferences = value;
@@ -511,6 +647,51 @@ class SSHStore extends ChangeNotifier {
   String _searchQuery = "";
 
   final Map<String, Process> _activeProxies = {};
+  final Set<Future<Process>> _spawningProxies = {};
+  bool _shuttingDown = false;
+
+  Future<Process> _spawnProxy(List<String> arguments) async {
+    final pending = processStarter('ssh', arguments);
+    _spawningProxies.add(pending);
+    try {
+      return await pending;
+    } finally {
+      _spawningProxies.remove(pending);
+    }
+  }
+
+  Future<void> shutdownProxies() async {
+    _shuttingDown = true;
+    _loadingStates.updateAll((_, __) => false);
+    final processes = _activeProxies.values.toSet();
+    _activeProxies.clear();
+    for (final process in processes) {
+      process.kill();
+    }
+    // Include starts in flight so quitting cannot orphan a newly spawned SSH.
+    await Future.wait(
+      _spawningProxies.toList().map((pending) async {
+        try {
+          final process = await pending;
+          process.kill();
+          processes.add(process);
+        } catch (_) {
+          // Failed starts have no process to stop.
+        }
+      }),
+    );
+    await Future.wait(
+      processes.map((process) async {
+        try {
+          await process.exitCode.timeout(const Duration(seconds: 2));
+        } on TimeoutException {
+          process.kill(ProcessSignal.sigkill);
+          await process.exitCode;
+        }
+      }),
+    );
+  }
+
   final Map<String, bool> _loadingStates = {};
   final Set<String> _dirtyHosts = {};
   final Map<SSHHost, String> _savedHostStates = {};
@@ -728,6 +909,9 @@ class SSHStore extends ChangeNotifier {
   Future<void> initialize() async {
     await loadMetadata();
     await Future.wait([loadConfig(), loadApplicationInfo()]);
+    if (Platform.isMacOS && preferences.autoCheckUpdates) {
+      unawaited(checkForUpdates(automatic: true));
+    }
   }
 
   /// Copies the current config into `<config folder>/config_bk` before a write,
@@ -1408,6 +1592,7 @@ class SSHStore extends ChangeNotifier {
     String? forwardValue,
     String? processKey,
   }) async {
+    if (_shuttingDown) return 'Application is quitting.';
     final key =
         processKey ??
         (forwardType == null
@@ -1484,8 +1669,8 @@ class SSHStore extends ChangeNotifier {
     try {
       debugPrint("Starting background SSH: ssh ${args.join(' ')}");
 
-      final process = await processStarter('ssh', args);
-      if (_loadingStates[key] != true) {
+      final process = await _spawnProxy(args);
+      if (_shuttingDown || _loadingStates[key] != true) {
         process.kill();
         unawaited(process.stdout.drain<void>());
         unawaited(process.stderr.drain<void>());
@@ -1683,8 +1868,12 @@ class _MainWindowState extends State<MainWindow>
   static const _commandChannel = MethodChannel('harbor/commands');
 
   Future<void> _handleNativeCommand(MethodCall call) async {
-    // A modal owns keyboard input until it closes.
     if (!mounted) return;
+    if (call.method == 'shutdown') {
+      await context.read<SSHStore>().shutdownProxies();
+      return;
+    }
+    // A modal owns keyboard input until it closes.
     if (call.method == 'quickConnect' &&
         _quickConnectRoutes[Navigator.of(context, rootNavigator: true)] !=
             null) {

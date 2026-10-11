@@ -18,6 +18,7 @@ class HarborPreferences {
   final int connectTimeout;
   final int keepAlive;
   final bool recordRecent;
+  final bool autoCheckUpdates;
   const HarborPreferences({
     this.theme = ThemeMode.system,
     this.accent = 'Copper',
@@ -28,6 +29,7 @@ class HarborPreferences {
     this.connectTimeout = 15,
     this.keepAlive = 30,
     this.recordRecent = true,
+    this.autoCheckUpdates = true,
   });
   factory HarborPreferences.fromJson(dynamic value) {
     final data = value is Map ? value : const {};
@@ -57,6 +59,7 @@ class HarborPreferences {
           ? (data['keepAlive'] as num).toInt()
           : 30,
       recordRecent: flag('recordRecent', true),
+      autoCheckUpdates: flag('autoCheckUpdates', true),
     );
   }
   HarborPreferences copyWith({
@@ -69,6 +72,7 @@ class HarborPreferences {
     int? connectTimeout,
     int? keepAlive,
     bool? recordRecent,
+    bool? autoCheckUpdates,
   }) => HarborPreferences(
     theme: theme ?? this.theme,
     accent: accent ?? this.accent,
@@ -79,6 +83,7 @@ class HarborPreferences {
     connectTimeout: connectTimeout ?? this.connectTimeout,
     keepAlive: keepAlive ?? this.keepAlive,
     recordRecent: recordRecent ?? this.recordRecent,
+    autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
   );
   Map<String, dynamic> toJson() => {
     'theme': theme.name,
@@ -90,6 +95,7 @@ class HarborPreferences {
     'connectTimeout': connectTimeout,
     'keepAlive': keepAlive,
     'recordRecent': recordRecent,
+    'autoCheckUpdates': autoCheckUpdates,
   };
 }
 
@@ -452,6 +458,72 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
                   ],
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _HarborSettingRow(
+            title: 'Automatically check for updates',
+            subtitle: 'Check GitHub Releases when Harbor starts.',
+            control: toggle(
+              'Automatically check for updates',
+              prefs.autoCheckUpdates,
+              (value) => update(prefs.copyWith(autoCheckUpdates: value)),
+            ),
+          ),
+          Text(
+            store.updateStatus,
+            style: TextStyle(
+              fontSize: 12,
+              color: store.updateError
+                  ? CupertinoColors.systemRed
+                  : colors.muted,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              HarborButton(
+                label: 'Check for updates',
+                busy: store.updateBusy,
+                secondary: true,
+                onPressed: store.updateBusy ? null : store.checkForUpdates,
+              ),
+              if (store.availableUpdate != null)
+                HarborButton(
+                  label: 'Install and restart',
+                  onPressed: store.updateBusy
+                      ? null
+                      : () async {
+                          final confirmed = await showHarborDialog<bool>(
+                            context: context,
+                            builder: (dialogContext) => HarborAlert(
+                              appIcon: const Icon(
+                                CupertinoIcons.arrow_down_circle,
+                              ),
+                              title: Text(
+                                'Install ${store.availableUpdate!.version}?',
+                              ),
+                              message: const Text(
+                                'Harbor will download the update and restart. Active port mappings will close. Your saved settings and connections will be preserved.',
+                              ),
+                              secondaryButton: HarborButton(
+                                label: 'Cancel',
+                                secondary: true,
+                                onPressed: () =>
+                                    Navigator.of(dialogContext).pop(false),
+                              ),
+                              primaryButton: HarborButton(
+                                label: 'Install and restart',
+                                onPressed: () =>
+                                    Navigator.of(dialogContext).pop(true),
+                              ),
+                            ),
+                          );
+                          if (confirmed == true) await store.installUpdate();
+                        },
+                ),
             ],
           ),
           const SizedBox(height: 16),
