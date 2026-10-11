@@ -11,6 +11,8 @@ flutter --no-version-check test --no-pub --coverage
 python3 -m unittest discover -s scripts/tests -v
 ```
 
-Use fictional hosts and temporary directories in tests; do not commit private keys, host configuration, credentials or signing certificates. Add regression tests for SSH lifecycle, persistence and interaction changes. See [release preparation](docs/releasing.md) before changing packaging or workflows.
+Use fictional hosts and temporary directories in tests; do not commit private keys, host configuration, credentials or signing certificates. Add regression tests for SSH lifecycle, persistence and interaction changes. Packaging and workflow changes should also pass the checks in `.github/workflows/ci.yml`.
 
 The project license is pending the maintainer's decision; no license is implied by this file.
+
+Private development notes (`docs/`, `notes/`, `dev-notes/`) and local backups (`.local-only/`) are excluded from version control. Keep public usage instructions in README and contribution instructions in this file.

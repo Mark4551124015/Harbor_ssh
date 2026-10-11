@@ -123,7 +123,7 @@ void main() {
         final image = await render.toImage(pixelRatio: 1.5);
         final data = await image.toByteData(format: ui.ImageByteFormat.png);
         await File(
-          'docs/images/${dark ? 'workbench-dark' : 'settings-light'}.png',
+          'assets/screenshots/${dark ? 'workbench-dark' : 'settings-light'}.png',
         ).writeAsBytes(data!.buffer.asUint8List());
         image.dispose();
       });

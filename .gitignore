@@ -54,3 +54,9 @@ app.*.map.json
 *.keychain-db
 .env
 .env.*
+
+# Private development notes and local history backups
+/docs/
+/.local-only/
+/notes/
+/dev-notes/

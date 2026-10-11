@@ -11,4 +11,4 @@
 - Live system OpenSSH activity and TCP connection probes.
 - GitHub Actions quality checks, universal macOS packages and optional Developer ID notarization.
 
-This version has not been publicly released. See [release readiness](docs/release-readiness.md) for remaining blockers.
+This version has not been publicly released.

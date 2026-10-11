@@ -9,24 +9,24 @@
   <img alt="OpenSSH" src="https://img.shields.io/badge/connects_with-OpenSSH-9A5427" />
 </p>
 <p align="center">
-  <a href="#功能">功能</a> · <a href="#开始使用">开始使用</a> · <a href="#操作方式">操作方式</a> · <a href="#数据与配置">数据与配置</a> · <a href="docs/product-direction.md">产品方向</a>
+  <a href="#功能">功能</a> · <a href="#开始使用">开始使用</a> · <a href="#操作方式">操作方式</a> · <a href="#数据与配置">数据与配置</a>
 </p>
 
 Harbor 是面向 macOS 的本地 SSH 管理器。用分组与收藏整理服务器，用独立页面维护密钥和隧道，连接交给你习惯的外部终端。
 
 本项目借助 **OpenAI Codex** 开发，Codex 参与界面实现、功能开发、测试与文档编写。
 
-目前处于开发阶段；可从源码运行和构建。本文列出的功能均已实现，后续建议单独放在[产品方向](docs/product-direction.md)中。
+目前处于开发阶段；可从源码运行和构建。
 
 ## 界面预览
 
 工作台 · 深色主题
 
-![Harbor 工作台](docs/images/workbench-dark.png)
+![Harbor 工作台](assets/screenshots/workbench-dark.png)
 
 设置 · 浅色主题
 
-![Harbor 设置](docs/images/settings-light.png)
+![Harbor 设置](assets/screenshots/settings-light.png)
 
 截图使用虚构服务器数据；文档渲染使用替代字体，运行时使用 macOS 系统字体。
 
@@ -87,7 +87,7 @@ flutter --no-version-check build macos --release
 open build/macos/Build/Products/Release/Harbor.app
 ```
 
-构建产物为 `Harbor.app`。面向其他 Mac 分发时，发布流程还需要 Developer ID 签名与 Apple 公证；GitHub Actions 发布流程见[发布说明](docs/releasing.md)，正式公开前的缺口见[发布准备审计](docs/release-readiness.md)。
+构建产物为 `Harbor.app`。GitHub Actions 支持生成测试包，以及可选的 Developer ID 签名与 Apple 公证。
 
 ## 操作方式
 
@@ -124,7 +124,7 @@ open build/macos/Build/Products/Release/Harbor.app
 
 PR 和 main 推送执行格式检查、静态分析、回归测试、覆盖率收集与 macOS Release 构建。版本 tag 或手动运行可生成 GitHub Release 草稿，包含 Universal ZIP、DMG、SHA256 和构建清单；支持可选 Developer ID 签名与公证。
 
-当前仍有正式发布阻断项，详见[发布准备审计](docs/release-readiness.md)。操作步骤与所需 secrets 见[发布说明](docs/releasing.md)。
+当前处于开发阶段，尚未公开发布。签名流程使用 GitHub Actions secrets；未签名构建标记为测试预发布。
 
 ## 开发
 
@@ -150,6 +150,6 @@ python3 scripts/generate_app_icon.py
 
 ## 设计参考
 
-README 的信息顺序与可搜索设置的方向参考了 [pebrel](https://github.com/Kuddev/pebrel)。Harbor 的功能取舍与下一阶段交互建议见[产品方向](docs/product-direction.md)，早期参考记录见[开源项目对比](docs/open-source-comparison.md)。`other_projects/` 中的参考仓库不纳入 Git。
+README 的信息顺序与可搜索设置的方向参考了 [pebrel](https://github.com/Kuddev/pebrel)。
 
 Harbor 为当前工作名称。
