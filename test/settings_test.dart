@@ -19,10 +19,7 @@ void main() {
   ) async {
     final store = SettingsMemoryStore();
     addTearDown(store.dispose);
-    store.preferences = const HarborPreferences(
-      sshUseProxy: true,
-      updatesUseProxy: false,
-    );
+    store.preferences = const HarborPreferences(updatesUseProxy: false);
     await tester.binding.setSurfaceSize(const Size(1040, 720));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -37,7 +34,7 @@ void main() {
     expect(find.text('System'), findsOneWidget);
     expect(find.text('系统代理'), findsNothing);
     expect(find.text('关闭'), findsNothing);
-    expect(find.text('SSH uses proxy'), findsOneWidget);
+    expect(find.text('SSH uses proxy'), findsNothing);
     expect(find.text('Updates use proxy'), findsOneWidget);
     await tester.tap(find.text('Off'));
     await tester.pumpAndSettle();
@@ -48,10 +45,42 @@ void main() {
     await tester.tap(find.text('System'));
     await tester.pumpAndSettle();
     expect(store.preferences.proxyMode, 'system');
-    expect(find.text('SSH uses proxy'), findsOneWidget);
+    expect(find.text('SSH uses proxy'), findsNothing);
     expect(find.text('Updates use proxy'), findsOneWidget);
-    expect(store.preferences.sshUseProxy, isTrue);
     expect(store.preferences.updatesUseProxy, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Connection proxy controls change only the selected connection', (
+    tester,
+  ) async {
+    final store = SettingsMemoryStore();
+    addTearDown(store.dispose);
+    final first = SSHHost(hostAlias: 'first', hostName: 'first.test');
+    final second = SSHHost(hostAlias: 'second', hostName: 'second.test');
+    store.hosts = [first, second];
+    store.selectHost(first);
+    await tester.binding.setSurfaceSize(const Size(1040, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SSHStore>.value(
+        value: store,
+        child: const HarborApplication(home: HostDetailTabs(initialTab: 2)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('SSH over proxy'), findsOneWidget);
+    expect(find.text('Proxy host'), findsNothing);
+    await tester.tap(find.text('SOCKS5'));
+    await tester.pumpAndSettle();
+    expect(store.proxyFor(first).mode, 'socks');
+    expect(store.proxyFor(second).mode, 'off');
+    expect(find.text('Proxy host'), findsOneWidget);
+    expect(find.text('Proxy port'), findsOneWidget);
+    expect(store.preferences.proxyMode, 'system');
+    await tester.tap(find.text('Off'));
+    await tester.pumpAndSettle();
+    expect(find.text('Proxy host'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

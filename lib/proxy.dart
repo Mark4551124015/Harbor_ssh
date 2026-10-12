@@ -69,9 +69,46 @@ class HarborProxy {
   ].map(_shellQuote).join(' ');
 }
 
+class ConnectionProxyPreferences {
+  final String mode;
+  final String host;
+  final int port;
+  const ConnectionProxyPreferences({
+    this.mode = 'off',
+    this.host = '127.0.0.1',
+    this.port = 7899,
+  });
+  factory ConnectionProxyPreferences.fromJson(dynamic value) {
+    final prefs = HarborPreferences.fromJson(value);
+    return ConnectionProxyPreferences(
+      mode: prefs.proxyMode,
+      host: prefs.proxyHost,
+      port: prefs.proxyPort,
+    );
+  }
+  Map<String, dynamic> toJson() => {
+    'proxyMode': mode,
+    'proxyHost': host,
+    'proxyPort': port,
+  };
+  ConnectionProxyPreferences copyWith({
+    String? mode,
+    String? host,
+    int? port,
+  }) => ConnectionProxyPreferences(
+    mode: mode ?? this.mode,
+    host: host ?? this.host,
+    port: port ?? this.port,
+  );
+}
+
 extension HarborProxyRouting on SSHStore {
-  Future<HarborProxy?> resolveProxy(Uri url, {required bool enabled}) async {
-    final prefs = preferences;
+  Future<HarborProxy?> resolveProxy(
+    Uri url, {
+    required bool enabled,
+    HarborPreferences? configuration,
+  }) async {
+    final prefs = configuration ?? preferences;
     if (!enabled || prefs.proxyMode == 'off') return null;
     if (prefs.proxyMode != 'system') {
       return HarborProxy(
@@ -127,7 +164,8 @@ extension HarborProxyRouting on SSHStore {
   }
 
   Future<List<String>> sshNetworkProxyArguments(SSHHost host) async {
-    if (!preferences.sshUseProxy || preferences.proxyMode == 'off') return [];
+    final settings = proxyFor(host);
+    if (settings.mode == 'off') return [];
     // An explicit per-host transport remains authoritative.
     if (host.advancedOptions.keys.any(
       (key) => key.toLowerCase() == 'proxycommand',
@@ -167,7 +205,12 @@ extension HarborProxyRouting on SSHStore {
         host: first.hostName,
         port: int.tryParse(first.port) ?? 22,
       ),
-      enabled: preferences.sshUseProxy,
+      enabled: true,
+      configuration: HarborPreferences(
+        proxyMode: settings.mode,
+        proxyHost: settings.host,
+        proxyPort: settings.port,
+      ),
     );
     if (proxy == null) return [];
     if (jumps.isEmpty) {

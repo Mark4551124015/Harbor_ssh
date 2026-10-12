@@ -14,14 +14,12 @@ void main() {
       proxyMode: 'socks',
       proxyHost: 'localhost',
       proxyPort: 1080,
-      sshUseProxy: true,
       updatesUseProxy: false,
     );
     final restored = HarborPreferences.fromJson(prefs.toJson());
     expect(restored.proxyMode, 'socks');
     expect(restored.proxyHost, 'localhost');
     expect(restored.proxyPort, 1080);
-    expect(restored.sshUseProxy, isTrue);
     expect(restored.updatesUseProxy, isFalse);
     expect(HarborPreferences.fromJson({'proxyPort': -1}).proxyPort, 7899);
     expect(
@@ -29,6 +27,82 @@ void main() {
       throwsFormatException,
     );
   });
+  test(
+    'Connection proxies persist independently and follow rename and deletion',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'harbor-proxy-library-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final metadata = File('${directory.path}/library.json');
+      final store = SSHStore(
+        load: false,
+        metadataFile: metadata,
+        configFile: File('${directory.path}/config'),
+      );
+      addTearDown(store.dispose);
+      final first = SSHHost(hostAlias: 'first', hostName: 'first.test');
+      final second = SSHHost(hostAlias: 'second', hostName: 'second.test');
+      store.hosts = [first, second];
+      store.preferences = const HarborPreferences(proxyMode: 'off');
+      await store.updateConnectionProxy(
+        first,
+        const ConnectionProxyPreferences(mode: 'socks', port: 1080),
+      );
+      expect(
+        (await store.sshNetworkProxyArguments(first)).last,
+        contains("'-X' '5'"),
+      );
+      expect(await store.sshNetworkProxyArguments(second), isEmpty);
+      final restored = SSHStore(load: false, metadataFile: metadata);
+      addTearDown(restored.dispose);
+      await restored.loadMetadata();
+      expect(restored.proxyFor(first).port, 1080);
+      expect(restored.proxyFor(second).mode, 'off');
+      store.renameHost(first, 'renamed');
+      await store.saveMetadata();
+      expect(store.connectionProxies.containsKey('first'), isFalse);
+      expect(store.proxyFor(first).mode, 'socks');
+      store.deleteHost(first);
+      await store.saveMetadata();
+      expect(store.connectionProxies.containsKey('renamed'), isFalse);
+    },
+  );
+  test(
+    'Legacy global SSH proxy migrates once to existing connections',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'harbor-proxy-migration-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final metadata = File('${directory.path}/library.json');
+      final config = File('${directory.path}/config');
+      await config.writeAsString('Host old\n  HostName old.test\n');
+      await metadata.writeAsString(
+        jsonEncode({
+          'preferences': {
+            'sshUseProxy': true,
+            'proxyMode': 'http',
+            'proxyPort': 8080,
+            'autoCheckUpdates': false,
+          },
+        }),
+      );
+      final store = SSHStore(
+        load: false,
+        metadataFile: metadata,
+        configFile: config,
+      );
+      addTearDown(store.dispose);
+      await store.initialize();
+      expect(store.proxyFor(store.hosts.single).mode, 'http');
+      expect(store.proxyFor(store.hosts.single).port, 8080);
+      expect(store.proxyFor(SSHHost(hostAlias: 'new')).mode, 'off');
+      final saved = jsonDecode(await metadata.readAsString());
+      expect(saved['preferences'].containsKey('sshUseProxy'), isFalse);
+      expect(saved['connectionProxies']['old']['proxyPort'], 8080);
+    },
+  );
   test('System environment handles SOCKS and bypass rules', () {
     final url = Uri.parse('https://github.com');
     expect(
@@ -80,11 +154,12 @@ void main() {
       final store = SSHStore(load: false);
       store.preferences = const HarborPreferences(
         proxyMode: 'socks',
-        sshUseProxy: true,
         updatesUseProxy: false,
         proxyPort: 1080,
       );
       final host = SSHHost(hostAlias: 'lab', hostName: 'server.test');
+      store.connectionProxies[host.hostAlias] =
+          const ConnectionProxyPreferences(mode: 'socks', port: 1080);
       final args = await store.sshNetworkProxyArguments(host);
       expect(args.last, contains("'-X' '5'"));
       expect(args.last, contains("'%h' '%p'"));
@@ -112,12 +187,16 @@ void main() {
       expect(await store.sshNetworkProxyArguments(host), isEmpty);
       host.advancedOptions.clear();
       host.proxyJump = '';
-      store.preferences = store.preferences.copyWith(proxyMode: 'http');
+      store.connectionProxies[host.hostAlias] = store
+          .proxyFor(host)
+          .copyWith(mode: 'http');
       expect(
         (await store.sshNetworkProxyArguments(host)).last,
         contains("'-X' 'connect'"),
       );
-      store.preferences = store.preferences.copyWith(sshUseProxy: false);
+      store.connectionProxies[host.hostAlias] = store
+          .proxyFor(host)
+          .copyWith(mode: 'off');
       expect(await store.sshNetworkProxyArguments(host), isEmpty);
     },
   );
@@ -141,7 +220,6 @@ void main() {
       store.preferences = HarborPreferences(
         proxyMode: 'http',
         proxyPort: proxy.port,
-        sshUseProxy: false,
       );
       Future<String> get() async {
         final client = await store.createUpdateHttpClient(url);

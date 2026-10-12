@@ -909,6 +909,18 @@ class SSHStore extends ChangeNotifier {
   final Set<String> favorites = {};
   final Map<String, String> hostGroups = {};
   final Map<String, List<String>> hostTags = {};
+  final Map<String, ConnectionProxyPreferences> connectionProxies = {};
+  ConnectionProxyPreferences proxyFor(SSHHost host) =>
+      connectionProxies[host.hostAlias] ?? const ConnectionProxyPreferences();
+  Future<void> updateConnectionProxy(
+    SSHHost host,
+    ConnectionProxyPreferences value,
+  ) {
+    connectionProxies[host.hostAlias] = value;
+    notifyListeners();
+    return saveMetadata();
+  }
+
   final Set<String> explicitGroups = {};
   final List<String> sectionOrder = [];
   final Map<String, List<String>> hostOrder = {};
@@ -1095,6 +1107,13 @@ class SSHStore extends ChangeNotifier {
   Future<void> initialize() async {
     await loadMetadata();
     await Future.wait([loadConfig(), loadApplicationInfo()]);
+    if (_legacySshProxy != null && configError == null) {
+      for (final host in hosts) {
+        connectionProxies.putIfAbsent(host.hostAlias, () => _legacySshProxy!);
+      }
+      _legacySshProxy = null;
+      await saveMetadata();
+    }
     if (Platform.isMacOS && preferences.autoCheckUpdates) {
       unawaited(checkForUpdates(automatic: true));
     }
@@ -1215,6 +1234,8 @@ class SSHStore extends ChangeNotifier {
 
   bool isFavorite(SSHHost host) => favorites.contains(host.hostAlias);
 
+  ConnectionProxyPreferences? _legacySshProxy;
+
   Future<void> loadMetadata() async {
     try {
       _metadataFile ??= File(
@@ -1289,6 +1310,21 @@ class SSHStore extends ChangeNotifier {
             jsonDecode(await _metadataFile!.readAsString())
                 as Map<String, dynamic>;
         preferences = HarborPreferences.fromJson(data['preferences']);
+        final savedProxies = data['connectionProxies'];
+        if (savedProxies is Map) {
+          savedProxies.forEach((alias, value) {
+            if (alias is String && value is Map) {
+              connectionProxies[alias] = ConnectionProxyPreferences.fromJson(
+                value,
+              );
+            }
+          });
+        } else if (data['preferences'] is Map &&
+            data['preferences']['sshUseProxy'] == true) {
+          _legacySshProxy = ConnectionProxyPreferences.fromJson(
+            data['preferences'],
+          );
+        }
         mappings.addAll(
           (data['mappings'] as List? ?? []).map(
             (value) =>
@@ -1339,12 +1375,19 @@ class SSHStore extends ChangeNotifier {
 
   Future<void> saveMetadata() {
     final contents = jsonEncode({
-      'preferences': preferences.toJson(),
+      'preferences': {
+        ...preferences.toJson(),
+        if (_legacySshProxy != null) 'sshUseProxy': true,
+      },
       'mappings': mappings.map((mapping) => mapping.toJson()).toList(),
       'mappingGroups': mappingGroups.toList()..sort(),
       'favorites': favorites.toList(),
       'groups': hostGroups,
       'hostTags': hostTags,
+      if (_legacySshProxy == null)
+        'connectionProxies': connectionProxies.map(
+          (alias, value) => MapEntry(alias, value.toJson()),
+        ),
       'groupNames': explicitGroups.toList(),
       'sectionOrder': sectionOrder,
       'hostOrder': hostOrder,
@@ -1459,6 +1502,8 @@ class SSHStore extends ChangeNotifier {
     }
     host.hostAlias = alias;
     if (favorites.remove(old)) favorites.add(alias);
+    final proxy = connectionProxies.remove(old);
+    if (proxy != null) connectionProxies[alias] = proxy;
     final tags = hostTags.remove(old);
     if (tags != null) hostTags[alias] = tags;
     final icon = hostIcons.remove(old);
@@ -1708,6 +1753,7 @@ class SSHStore extends ChangeNotifier {
     favorites.remove(host.hostAlias);
     hostIcons.remove(host.hostAlias);
     hostTags.remove(host.hostAlias);
+    connectionProxies.remove(host.hostAlias);
     final group = hostGroups.remove(host.hostAlias);
     if (group != null) explicitGroups.add(group);
     for (final order in hostOrder.values) {
@@ -3885,6 +3931,72 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
           const SizedBox(height: 20),
           const Divider(),
           const SizedBox(height: 10),
+          _buildLabel('SSH over proxy'),
+          const SizedBox(height: 6),
+          CupertinoSlidingSegmentedControl<String>(
+            groupValue: store.proxyFor(host).mode,
+            children: const {
+              'off': Text('Off'),
+              'system': Text('System'),
+              'socks': Text('SOCKS5'),
+              'http': Text('HTTP'),
+            },
+            onValueChanged: (value) {
+              if (value != null) {
+                store.updateConnectionProxy(
+                  host,
+                  store.proxyFor(host).copyWith(mode: value),
+                );
+              }
+            },
+          ),
+          if (['socks', 'http'].contains(store.proxyFor(host).mode)) ...[
+            const SizedBox(height: 12),
+            _buildLabel('Proxy host'),
+            HarborTextField(
+              key: ValueKey('connection-proxy-host-${host.hostAlias}'),
+              initialValue: store.proxyFor(host).host,
+              validator: (value) =>
+                  RegExp(r'^[a-zA-Z0-9_.:-]+$').hasMatch(value.trim()) &&
+                      !value.trim().startsWith('-')
+                  ? null
+                  : 'Enter a hostname or IP address.',
+              onChanged: (value) => store.updateConnectionProxy(
+                host,
+                store.proxyFor(host).copyWith(host: value.trim()),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildLabel('Proxy port'),
+            HarborTextField(
+              key: ValueKey('connection-proxy-port-${host.hostAlias}'),
+              initialValue: '${store.proxyFor(host).port}',
+              validator: (value) {
+                final port = int.tryParse(value);
+                return port != null && port > 0 && port <= 65535
+                    ? null
+                    : 'Invalid port.';
+              },
+              onChanged: (value) {
+                final port = int.tryParse(value);
+                if (port != null && port > 0 && port <= 65535) {
+                  store.updateConnectionProxy(
+                    host,
+                    store.proxyFor(host).copyWith(port: port),
+                  );
+                }
+              },
+            ),
+          ],
+          const SizedBox(height: 7),
+          Text(
+            'Applies to new SSH sessions and this connection’s port mappings. A custom ProxyCommand takes precedence.',
+            style: TextStyle(
+              fontSize: 11,
+              color: HarborColors.of(context).muted,
+            ),
+          ),
+          const SizedBox(height: 20),
           _buildLabel("Jump host (ProxyJump)"),
           HarborTextField(
             initialValue: host.proxyJump,

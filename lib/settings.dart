@@ -23,7 +23,6 @@ class HarborPreferences {
   final String proxyMode;
   final String proxyHost;
   final int proxyPort;
-  final bool sshUseProxy;
   final bool updatesUseProxy;
   const HarborPreferences({
     this.theme = ThemeMode.system,
@@ -40,7 +39,6 @@ class HarborPreferences {
     this.proxyMode = 'system',
     this.proxyHost = '127.0.0.1',
     this.proxyPort = 7899,
-    this.sshUseProxy = false,
     this.updatesUseProxy = true,
   });
   factory HarborPreferences.fromJson(dynamic value) {
@@ -88,7 +86,6 @@ class HarborPreferences {
               data['proxyPort'] <= 65535
           ? data['proxyPort'] as int
           : 7899,
-      sshUseProxy: flag('sshUseProxy', false),
       updatesUseProxy: flag('updatesUseProxy', true),
     );
   }
@@ -107,7 +104,6 @@ class HarborPreferences {
     String? proxyMode,
     String? proxyHost,
     int? proxyPort,
-    bool? sshUseProxy,
     bool? updatesUseProxy,
   }) => HarborPreferences(
     theme: theme ?? this.theme,
@@ -124,7 +120,6 @@ class HarborPreferences {
     proxyMode: proxyMode ?? this.proxyMode,
     proxyHost: proxyHost ?? this.proxyHost,
     proxyPort: proxyPort ?? this.proxyPort,
-    sshUseProxy: sshUseProxy ?? this.sshUseProxy,
     updatesUseProxy: updatesUseProxy ?? this.updatesUseProxy,
   );
   Map<String, dynamic> toJson() => {
@@ -142,7 +137,6 @@ class HarborPreferences {
     'proxyMode': proxyMode,
     'proxyHost': proxyHost,
     'proxyPort': proxyPort,
-    'sshUseProxy': sshUseProxy,
     'updatesUseProxy': updatesUseProxy,
   };
 }
@@ -402,7 +396,7 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
         icon: CupertinoIcons.globe,
         children: [
           _HarborSettingRow(
-            title: 'Proxy mode',
+            title: 'Update proxy mode',
             subtitle:
                 'System follows macOS proxy settings, then environment settings.',
             control: options(prefs.proxyMode, {
@@ -458,16 +452,6 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
             ),
           ],
           if (prefs.proxyMode != 'off') ...[
-            _HarborSettingRow(
-              title: 'SSH uses proxy',
-              subtitle:
-                  'For new sessions and mappings; a host’s custom ProxyCommand takes precedence.',
-              control: toggle(
-                'SSH uses proxy',
-                prefs.sshUseProxy,
-                (value) => update(prefs.copyWith(sshUseProxy: value)),
-              ),
-            ),
             _HarborSettingRow(
               title: 'Updates use proxy',
               subtitle: 'Applies to version checks and update downloads.',

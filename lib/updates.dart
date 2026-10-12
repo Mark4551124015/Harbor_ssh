@@ -73,10 +73,19 @@ extension HarborUpdates on SSHStore {
       final response = await request.close().timeout(
         const Duration(seconds: 20),
       );
-      if (response.statusCode == 403 &&
-          response.headers.value('x-ratelimit-remaining') == '0') {
-        throw const HttpException(
-          'GitHub API rate limit reached. Try again later or change the update proxy.',
+      if (response.statusCode == 429 ||
+          (response.statusCode == 403 &&
+              response.headers.value('x-ratelimit-remaining') == '0')) {
+        final reset = int.tryParse(
+          response.headers.value('x-ratelimit-reset') ?? '',
+        );
+        final minutes = reset == null
+            ? null
+            : ((reset - DateTime.now().millisecondsSinceEpoch ~/ 1000) / 60)
+                  .ceil();
+        throw HttpException(
+          'GitHub’s request limit for this network has been reached. '
+          '${minutes != null && minutes > 0 ? 'Try again in about $minutes minutes' : 'Try again later'} or use a different update proxy. Shared proxy users share this limit.',
         );
       }
       if (response.statusCode != 200) {
