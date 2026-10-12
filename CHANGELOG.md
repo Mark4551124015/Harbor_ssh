@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.3-beta.2
+
+### Changed
+
+- Configure SSH proxies independently for each connection in Connection → SSH over proxy, with System, SOCKS5, HTTP, and Off modes. Existing global SSH proxy settings migrate to saved connections; global proxy settings now apply only to application updates.
+- Check for updates using the latest release's static manifest instead of the GitHub REST API, avoiding its shared-IP API rate limit. Existing release manifests remain supported, and newly published manifests include download URLs and an archive checksum.
+
+### Fixed
+
+- Generate SSH command previews, clipboard copies, and terminal launches through the same path, including proxy transport, forwarding rules, identity files, advanced options, and timeout/keepalive settings.
+- Preserve per-connection proxy settings across restarts and connection renames, and remove them when a connection is deleted.
+- Explain update request limits more clearly and show an estimated retry time when available.
+
 ## 1.0.3-beta.1
 
 ### Fixed
