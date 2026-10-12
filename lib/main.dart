@@ -851,7 +851,7 @@ class SSHStore extends ChangeNotifier {
 
   Future<void> shutdownProxies() async {
     _shuttingDown = true;
-    _loadingStates.updateAll((_, __) => false);
+    _loadingStates.updateAll((_, _) => false);
     final processes = _activeProxies.values.toSet();
     _activeProxies.clear();
     for (final process in processes) {
@@ -3341,7 +3341,7 @@ class _MainWindowState extends State<MainWindow>
               ),
               child: child,
             ),
-        pageBuilder: (menuContext, _, __) => HarborContextMenu(
+        pageBuilder: (menuContext, _, _) => HarborContextMenu(
           position: position,
           entries: entries,
           onDismiss: () => Navigator.pop(menuContext),
@@ -4489,13 +4489,13 @@ Future<void> showQuickConnect(BuildContext context) async {
     barrierLabel: 'Dismiss Quick Connect',
     barrierColor: Colors.black.withValues(alpha: 0.35),
     transitionDuration: harborMotion(context, 320),
-    pageBuilder: (_, __, ___) => ChangeNotifierProvider.value(
+    pageBuilder: (_, _, _) => ChangeNotifierProvider.value(
       value: store,
       child: const QuickConnectSheet(),
     ),
     // Center outside the filter so its layer contains only the panel,
     // rather than allocating a texture the size of the whole window.
-    transitionBuilder: (_, animation, __, child) => Center(
+    transitionBuilder: (_, animation, _, child) => Center(
       child: HarborQuickConnectTransition(animation: animation, child: child),
     ),
   );

@@ -14,7 +14,7 @@ void main() {
       var starts = 0;
       final store = SSHStore(
         load: false,
-        processStarter: (_, __) async {
+        processStarter: (_, _) async {
           if (starts++ == 0) return ready;
           return spawning.future;
         },
@@ -136,7 +136,7 @@ void main() {
       final process = TunnelTestProcess();
       final store = SSHStore(
         load: false,
-        processStarter: (_, __) => spawning.future,
+        processStarter: (_, _) => spawning.future,
       );
       store.hosts = [SSHHost(hostAlias: 'lab', hostName: 'lab.test')];
       final mapping = ManagedMapping(

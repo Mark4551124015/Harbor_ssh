@@ -481,7 +481,7 @@ class _HarborKeysPageState extends State<HarborKeysPage> {
                   )
                 : ListView.separated(
                     itemCount: keys.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final key = keys[index];
                       final uses = store.hosts

@@ -103,7 +103,7 @@ class _MappingDragPreview extends StatelessWidget {
       tween: Tween(begin: count > 1 ? 16 : 0, end: count > 1 ? 4 : 0),
       duration: harborMotion(context, 180),
       curve: Curves.easeOutCubic,
-      builder: (_, offset, __) => SizedBox(
+      builder: (_, offset, _) => SizedBox(
         width: width,
         height: 86 + offset * 2,
         child: Stack(

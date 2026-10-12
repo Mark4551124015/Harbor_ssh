@@ -274,7 +274,7 @@ void main() {
     final process = TunnelTestProcess();
     final store = SSHStore(
       load: false,
-      processStarter: (_, __) async => process,
+      processStarter: (_, _) async => process,
     );
     store.hosts = [SSHHost(hostAlias: 'lab', hostName: 'lab.test')];
     store.mappings.add(

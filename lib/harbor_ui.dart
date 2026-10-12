@@ -1415,8 +1415,8 @@ Future<T?> showHarborSheet<T>({
   barrierDismissible: barrierDismissible,
   barrierColor: Colors.black.withValues(alpha: 0.35),
   transitionDuration: harborMotion(context, 120),
-  pageBuilder: (context, _, __) => Center(child: builder(context)),
-  transitionBuilder: (_, animation, __, child) =>
+  pageBuilder: (context, _, _) => Center(child: builder(context)),
+  transitionBuilder: (_, animation, _, child) =>
       FadeTransition(opacity: animation, child: child),
 );
 
@@ -1504,7 +1504,7 @@ Future<T?> showHarborDialog<T>({
     barrierDismissible: false,
     barrierColor: Colors.black.withValues(alpha: 0.48),
     transitionDuration: Duration.zero,
-    pageBuilder: (context, _, __) => Shortcuts(
+    pageBuilder: (context, _, _) => Shortcuts(
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
       },
@@ -1520,7 +1520,7 @@ Future<T?> showHarborDialog<T>({
         child: Focus(autofocus: true, child: builder(context)),
       ),
     ),
-    transitionBuilder: (_, animation, __, child) =>
+    transitionBuilder: (_, animation, _, child) =>
         FadeTransition(opacity: animation, child: child),
   );
 }
@@ -2182,7 +2182,7 @@ Future<void> showNewGroupDialog(
       ),
       primaryButton: ValueListenableBuilder<TextEditingValue>(
         valueListenable: controller,
-        builder: (_, value, __) => HarborButton(
+        builder: (_, value, _) => HarborButton(
           label: renameFrom == null ? 'Create group' : 'Save name',
           onPressed:
               value.text.trim().isEmpty || value.text.trim() == 'Ungrouped'
@@ -2588,7 +2588,7 @@ Future<void> showRenameHostDialog(
       ),
       primaryButton: ValueListenableBuilder<TextEditingValue>(
         valueListenable: controller,
-        builder: (_, value, __) => HarborButton(
+        builder: (_, value, _) => HarborButton(
           label: 'Rename',
           onPressed:
               store.validateHostAlias(host, value.text) == null &&
@@ -2660,7 +2660,7 @@ class _HarborHostDraggableState extends State<HarborHostDraggable> {
             widget.onDropBefore?.call(details.data);
           }
         },
-        builder: (_, candidates, __) => Stack(
+        builder: (_, candidates, _) => Stack(
           clipBehavior: Clip.none,
           children: [
             Draggable<SSHHost>(
@@ -2717,7 +2717,7 @@ class _HarborHostDragPreview extends StatelessWidget {
       tween: Tween(begin: count > 1 ? 14 : 0, end: count > 1 ? 3 : 0),
       duration: harborMotion(context, 160),
       curve: Curves.easeOutCubic,
-      builder: (_, offset, __) => Stack(
+      builder: (_, offset, _) => Stack(
         clipBehavior: Clip.none,
         children: [
           if (count > 1)
@@ -2839,7 +2839,7 @@ class _HarborSectionDropTargetState extends State<HarborSectionDropTarget> {
         widget.onDropSection((details.data as HarborSectionDrag).name, after);
       }
     },
-    builder: (_, candidates, __) => SizedBox(
+    builder: (_, candidates, _) => SizedBox(
       height: 40,
       child: Stack(
         clipBehavior: Clip.none,
@@ -3510,7 +3510,7 @@ class _HarborForwardingPageState extends State<HarborForwardingPage>
         ),
         primaryButton: ValueListenableBuilder<TextEditingValue>(
           valueListenable: controller,
-          builder: (_, value, __) => HarborButton(
+          builder: (_, value, _) => HarborButton(
             label: 'Create group',
             onPressed: error(value.text) == null
                 ? () => Navigator.pop(dialogContext, value.text.trim())
@@ -3772,7 +3772,7 @@ class _HarborForwardingPageState extends State<HarborForwardingPage>
                       ),
                       child: child,
                     ),
-            pageBuilder: (_, __, ___) => HarborContextMenu(
+            pageBuilder: (_, _, _) => HarborContextMenu(
               position: position,
               entries: entries,
               onDismiss: navigator.pop,
@@ -4522,9 +4522,9 @@ class HarborServerSelector extends StatelessWidget {
             barrierLabel: 'Close server picker',
             barrierColor: Colors.transparent,
             transitionDuration: harborMotion(context, 90),
-            transitionBuilder: (_, animation, __, child) =>
+            transitionBuilder: (_, animation, _, child) =>
                 FadeTransition(opacity: animation, child: child),
-            pageBuilder: (_, __, ___) => ChangeNotifierProvider<SSHStore>.value(
+            pageBuilder: (_, _, _) => ChangeNotifierProvider<SSHStore>.value(
               value: store,
               child: Stack(
                 children: [

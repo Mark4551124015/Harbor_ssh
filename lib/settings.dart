@@ -865,7 +865,7 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
                             '${category ?? 'All'}:${query.trim().toLowerCase()}',
                           ),
                           itemCount: sections.length,
-                          separatorBuilder: (_, __) =>
+                          separatorBuilder: (_, _) =>
                               const SizedBox(height: 16),
                           itemBuilder: (_, index) => sections[index],
                         ),
