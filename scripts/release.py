@@ -120,6 +120,10 @@ def package(app, output, notarized=False):
                      'source_commit': run('git', '-C', ROOT, 'rev-parse', 'HEAD'),
                      'source_dirty': bool(run('git', '-C', ROOT, 'status', '--porcelain')),
                      'flutter_version': json.loads((ROOT / '.fvmrc').read_text())['flutter']})
+    download_base = f'https://github.com/Mark4551124015/Harbor_ssh/releases/download/v{metadata["version"]}/'
+    metadata.update({'archive_url': download_base + archive.name,
+                     'checksums_url': download_base + 'SHA256SUMS.txt',
+                     'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest()})
     manifest = output / 'release-manifest.json'
     manifest.write_text(json.dumps(metadata, indent=2) + '\n')
     (output / 'SHA256SUMS.txt').write_text(checksums([archive, dmg, manifest]))

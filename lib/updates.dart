@@ -7,6 +7,54 @@ class HarborUpdate {
   final Uri checksums;
   const HarborUpdate(this.version, this.build, this.archive, this.checksums);
 
+  static const manifestUrl =
+      'https://github.com/Mark4551124015/Harbor_ssh/releases/latest/download/release-manifest.json';
+
+  static HarborUpdate? fromManifest(
+    Map<String, dynamic> metadata,
+    int currentBuild,
+  ) {
+    final version = metadata['version'];
+    if (version is! String ||
+        !RegExp(
+          r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$',
+        ).hasMatch(version) ||
+        metadata['bundle_id'] != 'com.mark455.harbor') {
+      throw const FormatException('Invalid Harbor update metadata.');
+    }
+    // Existing releases have no URLs in their manifest. Their canonical tags
+    // and package names are deterministic, so they remain discoverable.
+    final base =
+        'https://github.com/Mark4551124015/Harbor_ssh/releases/download/v$version/';
+    final archiveName =
+        'Harbor-$version-macos-universal${metadata['notarized'] == true ? '' : '-unsigned'}.zip';
+    final result = parse({
+      'name': version,
+      'build': metadata['build'],
+      'draft': false,
+      'prerelease': false,
+      'assets': [
+        {
+          'name': archiveName,
+          'browser_download_url':
+              metadata['archive_url'] ?? '$base$archiveName',
+        },
+        {
+          'name': 'SHA256SUMS.txt',
+          'browser_download_url':
+              metadata['checksums_url'] ?? '${base}SHA256SUMS.txt',
+        },
+      ],
+    }, currentBuild);
+    final build = int.tryParse(metadata['build']?.toString() ?? '');
+    if (build == null ||
+        build < 1 ||
+        (build > currentBuild && result == null)) {
+      throw const FormatException('Invalid Harbor update download metadata.');
+    }
+    return result;
+  }
+
   static HarborUpdate? parse(Map<String, dynamic> release, int currentBuild) {
     if (release['draft'] != false || release['prerelease'] != false) {
       return null;
@@ -106,39 +154,15 @@ extension HarborUpdates on SSHStore {
     updateStatus = 'Checking for updates…';
     notifyUpdateListeners();
     try {
-      final data =
+      final metadata =
           jsonDecode(
                 utf8.decode(
-                  await _updateRequest(
-                    Uri.parse(
-                      'https://api.github.com/repos/Mark4551124015/Harbor_ssh/releases/latest',
-                    ),
-                  ),
+                  await _updateRequest(Uri.parse(HarborUpdate.manifestUrl)),
                 ),
               )
               as Map<String, dynamic>;
-      final assets = (data['assets'] as List).whereType<Map>();
-      final manifest = assets
-          .where((item) => item['name'] == 'release-manifest.json')
-          .firstOrNull;
-      if (manifest == null) {
-        throw const FormatException(
-          'This release does not include update metadata.',
-        );
-      }
-      final url = Uri.parse(manifest['browser_download_url'] as String);
-      if (url.scheme != 'https' ||
-          url.host != 'github.com' ||
-          !url.path.startsWith(
-            '/Mark4551124015/Harbor_ssh/releases/download/',
-          )) {
-        throw const FormatException('Invalid update metadata URL.');
-      }
-      final metadata =
-          jsonDecode(utf8.decode(await _updateRequest(url))) as Map;
-      data['build'] = metadata['build'];
-      availableUpdate = HarborUpdate.parse(
-        data,
+      availableUpdate = HarborUpdate.fromManifest(
+        metadata,
         int.tryParse(applicationBuild) ?? 0,
       );
       if (automatic &&

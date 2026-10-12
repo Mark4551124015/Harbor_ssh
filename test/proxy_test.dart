@@ -103,6 +103,67 @@ void main() {
       expect(saved['connectionProxies']['old']['proxyPort'], 8080);
     },
   );
+  test(
+    'Displayed, copied and launched commands share proxy and extra options',
+    () async {
+      final store = SSHStore(load: false);
+      addTearDown(store.dispose);
+      final host = SSHHost(
+        hostAlias: 'lab',
+        hostName: 'server.test',
+        user: 'alice',
+        port: '2222',
+        identityFile: '/tmp/key with spaces',
+        localForwards: ['8080:localhost:80'],
+        remoteForwards: ['9090:localhost:90'],
+        dynamicForward: '1080',
+        advancedOptions: {'Compression': 'yes', 'ConnectTimeout': '45'},
+      );
+      store.connectionProxies['lab'] = const ConnectionProxyPreferences(
+        mode: 'socks',
+        port: 1080,
+      );
+      final command = await store.commandFor(host);
+      expect(command, contains('ProxyCommand='));
+      final parsed = await Process.run('/bin/sh', [
+        '-c',
+        'set -- ${command.substring(4)}; printf \'%s\\n\' "\$@"',
+      ]);
+      expect(parsed.exitCode, 0);
+      expect(parsed.stdout, contains("'-X' '5'"));
+      for (final option in [
+        '-p 2222',
+        '-i',
+        '/tmp/key with spaces',
+        '-L 8080:localhost:80',
+        '-R 9090:localhost:90',
+        '-D 1080',
+        '-o Compression=yes',
+        '-o ConnectTimeout=45',
+        '-o ServerAliveInterval=30',
+        '-o ServerAliveCountMax=3',
+        'alice@server.test',
+      ]) {
+        expect(command, contains(option));
+      }
+      expect(command, isNot(contains('ConnectTimeout=15')));
+      String? copied;
+      const channel = SystemChannels.platform;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              copied = call.arguments['text'] as String;
+            }
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      await store.copyHostCommand(host);
+      expect(copied, command);
+    },
+  );
   test('System environment handles SOCKS and bypass rules', () {
     final url = Uri.parse('https://github.com');
     expect(

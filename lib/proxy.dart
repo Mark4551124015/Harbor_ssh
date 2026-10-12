@@ -139,6 +139,8 @@ extension HarborProxyRouting on SSHStore {
   }
 
   Future<HttpClient> createUpdateHttpClient(Uri url) async {
+    final factory = updateHttpClientFactory;
+    if (factory != null) return factory(url);
     final proxy = await resolveProxy(url, enabled: preferences.updatesUseProxy);
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);

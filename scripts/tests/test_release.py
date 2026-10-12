@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 import sys
 import plistlib
@@ -78,6 +79,24 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.package(self.root / 'Harbor.app', output)
         self.assertEqual((output / 'old.zip').read_bytes(), b'old')
+
+    def test_package_publishes_static_update_urls_and_archive_checksum(self):
+        output = self.root / 'dist'
+        def command(*args):
+            if args[0] == '/usr/bin/ditto' and '-c' in args:
+                Path(args[-1]).write_bytes(b'archive')
+            if args[:2] == ('/usr/bin/hdiutil', 'create'):
+                Path(args[-1]).write_bytes(b'dmg')
+            if 'rev-parse' in args:
+                return 'abc123'
+            return ''
+        with patch.object(release, 'verify', return_value={'version': '1.2.3', 'build': '4'}), patch.object(release, 'run', side_effect=command):
+            release.package(self.root / 'Harbor.app', output)
+        metadata = json.loads((output / 'release-manifest.json').read_text())
+        self.assertEqual(metadata['archive_url'], 'https://github.com/Mark4551124015/Harbor_ssh/releases/download/v1.2.3/Harbor-1.2.3-macos-universal-unsigned.zip')
+        self.assertEqual(metadata['checksums_url'], 'https://github.com/Mark4551124015/Harbor_ssh/releases/download/v1.2.3/SHA256SUMS.txt')
+        self.assertEqual(metadata['archive_sha256'], hashlib.sha256(b'archive').hexdigest())
+        self.assertIn(hashlib.sha256((output / 'release-manifest.json').read_bytes()).hexdigest(), (output / 'SHA256SUMS.txt').read_text())
 
     def fake_app(self):
         app = self.root / 'Harbor.app'

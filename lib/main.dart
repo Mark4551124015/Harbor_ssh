@@ -459,13 +459,17 @@ class SSHHost {
     return buffer.toString();
   }
 
-  String getPreviewCommand({List<String> networkArguments = const []}) {
+  String getPreviewCommand({
+    List<String> networkArguments = const [],
+    List<String> additionalArguments = const [],
+  }) {
     String quote(String value) =>
         RegExp(r'^[A-Za-z0-9_./:@=,+-]+$').hasMatch(value)
         ? value
         : "'${value.replaceAll("'", "'\"'\"'")}'";
     final args = <String>[
       ...networkArguments,
+      ...additionalArguments,
       if (port != '22') ...['-p', port],
       if (identityFile.isNotEmpty) ...[
         '-i',
@@ -485,7 +489,7 @@ class SSHHost {
         '${entry.key}=${entry.value}',
       ],
       '--',
-      '${user.isEmpty ? '' : '$user@'}$hostName',
+      '${user.isEmpty ? '' : '$user@'}${hostName.isEmpty ? hostAlias : hostName}',
     ];
     return 'ssh ${args.map(quote).join(' ')}';
   }
@@ -573,6 +577,7 @@ class SSHStore extends ChangeNotifier {
       pendingUpdatePrompt != skippedUpdateBuild &&
       pendingUpdatePrompt != preferences.ignoredUpdateBuild;
 
+  Future<HttpClient> Function(Uri)? updateHttpClientFactory;
   bool updateBusy = false;
   bool updateError = false;
   String updateStatus = 'Check for new versions of Harbor.';
@@ -1789,12 +1794,38 @@ class SSHStore extends ChangeNotifier {
     }
   }
 
+  Future<String> commandFor(SSHHost host) async {
+    final options = host.advancedOptions.keys
+        .map((key) => key.toLowerCase())
+        .toSet();
+    return host.getPreviewCommand(
+      networkArguments: await sshNetworkProxyArguments(host),
+      additionalArguments: [
+        if (!options.contains('connecttimeout')) ...[
+          '-o',
+          'ConnectTimeout=${preferences.connectTimeout}',
+        ],
+        if (preferences.keepAlive > 0 &&
+            !options.contains('serveraliveinterval')) ...[
+          '-o',
+          'ServerAliveInterval=${preferences.keepAlive}',
+          if (!options.contains('serveralivecountmax')) ...[
+            '-o',
+            'ServerAliveCountMax=3',
+          ],
+        ],
+      ],
+    );
+  }
+
+  Future<void> copyHostCommand(SSHHost host) async {
+    await Clipboard.setData(ClipboardData(text: await commandFor(host)));
+  }
+
   Future<void> copyCommandToClipboard(BuildContext context) async {
     if (currentHost == null) return;
     final h = currentHost!;
-    final cmd = h.getPreviewCommand(
-      networkArguments: await sshNetworkProxyArguments(h),
-    );
+    final cmd = await commandFor(h);
 
     await Clipboard.setData(ClipboardData(text: cmd));
 
@@ -1822,9 +1853,7 @@ class SSHStore extends ChangeNotifier {
   Future<void> openTerminal([SSHHost? target]) async {
     final host = target ?? currentHost;
     if (host == null) return;
-    final cmd = host.getPreviewCommand(
-      networkArguments: await sshNetworkProxyArguments(host),
-    );
+    final cmd = await commandFor(host);
     final directory = await Directory.systemTemp.createTemp('harbor-ssh-');
     final script = File(p.join(directory.path, 'connect.command'));
     try {
@@ -3186,9 +3215,7 @@ class _MainWindowState extends State<MainWindow>
         HarborMenuEntry(
           'Copy SSH command',
           CupertinoIcons.doc_on_doc,
-          onSelected: () => perform(() {
-            Clipboard.setData(ClipboardData(text: host.getPreviewCommand()));
-          }),
+          onSelected: () => perform(() => store.copyHostCommand(host)),
         ),
         const HarborMenuEntry.separator(),
         HarborMenuEntry(
@@ -3618,9 +3645,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
               ),
               MacosIconButton(
                 icon: const Icon(CupertinoIcons.doc_on_doc, size: 14),
-                onPressed: () => Clipboard.setData(
-                  ClipboardData(text: host.getPreviewCommand()),
-                ),
+                onPressed: () => context.read<SSHStore>().copyHostCommand(host),
               ),
             ],
           ),
@@ -3638,13 +3663,20 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: border),
             ),
-            child: SelectableText(
-              host.getPreviewCommand(),
-              style: TextStyle(
-                fontFamily: 'Menlo',
-                color: dark ? const Color(0xFFD8DFEB) : const Color(0xFF34435C),
-                fontSize: 12,
-                height: 1.6,
+            child: FutureBuilder<String>(
+              future: context.read<SSHStore>().commandFor(host),
+              builder: (context, snapshot) => SelectableText(
+                snapshot.hasError
+                    ? 'Could not generate SSH command: ${snapshot.error}'
+                    : snapshot.data ?? 'Resolving SSH command…',
+                style: TextStyle(
+                  fontFamily: 'Menlo',
+                  color: dark
+                      ? const Color(0xFFD8DFEB)
+                      : const Color(0xFF34435C),
+                  fontSize: 12,
+                  height: 1.6,
+                ),
               ),
             ),
           ),

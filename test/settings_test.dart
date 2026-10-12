@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart' show ThemeMode, SelectableText;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:macos_ui/macos_ui.dart';
@@ -83,6 +83,50 @@ void main() {
     expect(find.text('Proxy host'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'SSH command overview includes proxy, forwarding and advanced settings',
+    (tester) async {
+      final store = SettingsMemoryStore();
+      addTearDown(store.dispose);
+      final host = SSHHost(
+        hostAlias: 'lab',
+        hostName: 'lab.test',
+        localForwards: ['8080:localhost:80'],
+        advancedOptions: {'Compression': 'yes'},
+      );
+      store.hosts = [host];
+      store.selectHost(host);
+      store.connectionProxies['lab'] = const ConnectionProxyPreferences(
+        mode: 'http',
+        port: 8080,
+      );
+      await tester.binding.setSurfaceSize(const Size(1040, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SSHStore>.value(
+          value: store,
+          child: const HarborApplication(home: HostDetailTabs()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      String preview() => tester
+          .widgetList<SelectableText>(find.byType(SelectableText))
+          .map((widget) => widget.data ?? '')
+          .firstWhere((text) => text.startsWith('ssh '));
+      expect(preview(), contains('ProxyCommand='));
+      expect(preview(), contains('-L 8080:localhost:80'));
+      expect(preview(), contains('-o Compression=yes'));
+      expect(preview(), contains('-o ConnectTimeout=15'));
+      await store.updateConnectionProxy(
+        host,
+        const ConnectionProxyPreferences(),
+      );
+      await tester.pumpAndSettle();
+      expect(preview(), isNot(contains('ProxyCommand=')));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'Settings search finds full rows across categories and highlights matches',
