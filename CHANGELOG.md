@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.5
+
+### Fixed
+
+- Build CI and release packages with Xcode 26 so native window controls use the current macOS appearance, matching local builds instead of the older SDK compatibility style.
+- Fix the Dependabot lint upgrade by resolving the lockfile with the project's pinned Flutter SDK, preserving SDK-pinned dependency versions.
+- Update flutter_lints to 6.0.0 and fix unused callback parameter declarations for a clean static analysis run.
+
+### Build and distribution
+
+- Publish a stable release with no beta suffix, refreshed universal macOS ZIP and DMG packages, and build number 7 for in-app updates.
+- Include the Xcode and macOS SDK versions in the release manifest to make build differences traceable.
+- Retain static-manifest update checks, independent SSH proxy settings per connection, and complete SSH command previews and clipboard copies.
+
 ## 1.0.3-beta.2
 
 ### Changed
