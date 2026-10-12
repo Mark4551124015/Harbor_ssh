@@ -30,10 +30,20 @@ jobs:
     name: Test and build macOS
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      # SDK 26 adopts the current native macOS window controls. The runner's
+      # default Xcode 16 links SDK 15 and produces the compatibility appearance.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - name: Verify native macOS build toolchain
+        run: |
+          xcodebuild -version
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK: $sdk_version"
+          test "${sdk_version%%.*}" -ge 26
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version-file: .fvmrc

@@ -124,6 +124,10 @@ def package(app, output, notarized=False):
     metadata.update({'archive_url': download_base + archive.name,
                      'checksums_url': download_base + 'SHA256SUMS.txt',
                      'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest()})
+    metadata['build_toolchain'] = {
+        'xcode': run('/usr/bin/xcodebuild', '-version'),
+        'macos_sdk': run('/usr/bin/xcrun', '--sdk', 'macosx', '--show-sdk-version'),
+    }
     manifest = output / 'release-manifest.json'
     manifest.write_text(json.dumps(metadata, indent=2) + '\n')
     (output / 'SHA256SUMS.txt').write_text(checksums([archive, dmg, manifest]))
