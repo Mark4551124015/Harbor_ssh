@@ -10,7 +10,7 @@
 
 <p align="center">
   服务器 · 跳板链 · 端口映射 · 密钥 · 进程活动<br />
-  使用 Flutter 为 macOS 构建。
+  macOS 使用 Flutter · Windows 使用原生 WinUI 3（预览版）。
 </p>
 
 <p align="center">
@@ -91,6 +91,54 @@ Release 构建：
 flutter --no-version-check build macos --release
 open build/macos/Build/Products/Release/Harbor.app
 ```
+
+## Windows 原生预览版
+
+Windows 应用位于独立的 `windows/` 目录，使用 C# / WinUI 3 实现，采用原生 Fluent
+控件、系统强调色、明暗主题，以及受支持系统上的 Mica 背景。现有 macOS 应用与发布
+流程保持独立。
+
+工作区沿用 macOS 的页面结构：常驻的分组连接侧栏、Connection desk 工作台、收藏卡片、
+活动摘要和支持分类搜索的设置页。启动时使用原生合成器实现模糊渐清；页面渐入
+（190 毫秒）、分组与分段选择器动画（280 毫秒）、弹窗聚焦与缩放（320 毫秒）沿用
+原版节奏。应用的减少动效选项和 Windows 动画设置均生效，支持 Harbor 原有的五种
+强调色以及明暗配色。
+
+预览版支持具名 SSH 服务器、搜索、收藏、分组、简单 Host 块的增删改、Windows Terminal
+连接、本地/远程/SOCKS 转发、公钥指纹、公钥复制，以及在终端中交互生成 Ed25519 或
+RSA 4096 密钥。活动页显示本窗口启动的转发进程；终端连接由终端管理。
+
+配置文件为 `%USERPROFILE%\.ssh\config`。保存会保留注释、未知指令和其他 Host/Match
+块，在 `config_bk` 中备份旧文件，并拒绝覆盖刷新后被其他程序修改过的文件。多个别名、
+重复别名、多个 IdentityFile 或包含 Include 的 Host 块通过 **Open SSH config** 编辑。
+列表只展示主配置文件中的具体别名；连接时由 OpenSSH 解析 Include、Match 和继承选项。
+Windows 偏好与转发规则单独保存在 `%LOCALAPPDATA%\Harbor.Windows\settings.json`。
+
+托管转发绑定回环地址，使用非交互的密钥或 ssh-agent 认证。请先在终端连接一次以确认
+服务器信任并解锁密钥；关闭 Harbor 窗口会停止托管转发。如果服务器已经从配置继承了
+转发指令，请通过终端连接运行它们，或先移除这些指令再启动单条托管转发。进程状态
+不代表认证或目标服务已经就绪；转发页和活动页会显示 SSH 退出诊断。
+
+标签、拖动排序、Include 文件内的别名发现、系统级进程活动、自动更新和签名的
+Windows 安装包尚未实现。
+
+在 Windows 10 2004 或更高版本上构建（推荐 Windows 11），需要 .NET 10 SDK 和
+OpenSSH Client（`ssh.exe`、`ssh-keygen.exe`）。WinUI 原生依赖还需要对应架构的
+[Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。
+Windows SDK 构建工具由 NuGet 提供。在仓库根目录用 PowerShell 运行：
+
+```powershell
+.\windows\build.ps1 -Task Run
+.\windows\build.ps1 -Task Test
+.\windows\build.ps1 -Task Smoke  # 需要交互式 Windows 桌面，使用虚构数据。
+.\windows\build.ps1 -Task Publish
+```
+
+自包含的 x64 预览版输出到 `windows/artifacts/win-x64/`；在此目录运行
+`Harbor.Windows.exe`，分发时保留整个目录。`-Architecture ARM64` 可构建 ARM64 版，
+目前尚未在 ARM 硬件上运行验证。脚本优先使用 `.local-only/dotnet/` 中的 SDK，否则
+使用 PATH 中的 `dotnet`；也可以通过 `-Dotnet` 指定 SDK 可执行文件。SDK 不提交到仓库。
+程序集版本与 macOS 发布一样，从 `pubspec.yaml` 读取。
 
 ## 版本命名
 
