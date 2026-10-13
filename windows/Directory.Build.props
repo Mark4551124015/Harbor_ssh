@@ -4,5 +4,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
+    <!-- Set versions during project evaluation, before WinUI's two-pass build
+         computes assembly-info inputs. Explicit release overrides take priority. -->
+    <_HarborVersionLine>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\pubspec.yaml')), '(?m)^version:\s*\S+').Value)</_HarborVersionLine>
+    <_HarborFullVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(_HarborVersionLine)', '^version:\s*', ''))</_HarborFullVersion>
+    <Version Condition="'$(Version)' == ''">$([System.Text.RegularExpressions.Regex]::Replace('$(_HarborFullVersion)', '\+.*$', ''))</Version>
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$([System.Text.RegularExpressions.Regex]::Replace('$(_HarborFullVersion)', '^(\d+\.\d+\.\d+)(?:-[^+]+)?\+(\d+)$', '$1.$2'))</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)' == ''">$(AssemblyVersion)</FileVersion>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(_HarborFullVersion)</InformationalVersion>
   </PropertyGroup>
 </Project>

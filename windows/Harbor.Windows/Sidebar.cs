@@ -53,7 +53,7 @@ public sealed partial class MainWindow
         navigationMotion?.Stop();
         NavigationHighlightOffset.Y = from;
         NavigationHighlight.Visibility = index < 0 ? Visibility.Collapsed : Visibility.Visible;
-        SettingsButton.Foreground = ThemeBrush(target == "settings" ? "HarborAccentBrush" : "HarborMutedBrush");
+        SettingsButton.Foreground = ThemeBrush("HarborMutedBrush");
         for (var i = 0; i < NavigationItems.Children.Count; i++)
             ((Button)NavigationItems.Children[i]).Foreground = ThemeBrush(i == index ? "HarborAccentBrush" : "HarborMutedBrush");
         if (index < 0) return;

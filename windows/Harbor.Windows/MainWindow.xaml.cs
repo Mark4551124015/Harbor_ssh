@@ -127,6 +127,12 @@ public sealed partial class MainWindow : Window
         try
         {
             if (errors.Count > 0) throw new InvalidOperationException(string.Join("\n", errors));
+            if (Environment.GetCommandLineArgs().Contains("--smoke-updates-only"))
+            {
+                await VerifyWindowsUpdateUiAsync();
+                File.WriteAllLines(smokeReport!, new[] { "PASS Windows update UI: ZIP, installer and no-update actions", "PASS Windows update UI check" });
+                return;
+            }
             checks.Add("PASS native compositor launch focus reveal");
             preferences.Value.Forwards.Add(new ForwardRule(Guid.NewGuid(), "edge-gateway", ForwardKind.Socks, 1080));
             preferences.Value.Favorites.UnionWith(["edge-gateway", "design-lab"]);
@@ -217,8 +223,15 @@ public sealed partial class MainWindow : Window
                 checks.Add("PASS server rows retain their content height after search layout changes");
                 ShowPage("workbench"); ShowPage("keys"); ShowPage("settings");
                 await Task.Delay(300);
-                Root.UpdateLayout(); settingsSearchBox!.Focus(FocusState.Programmatic);
-                if (FocusedSearch() is null) throw new InvalidOperationException("Settings search did not receive focus for Escape check.");
+                Activate();
+                var focusDeadline = DateTime.UtcNow.AddSeconds(2);
+                do
+                {
+                    Root.UpdateLayout(); settingsSearchBox!.Focus(FocusState.Programmatic);
+                    if (FocusedSearch() is not null) break;
+                    await Task.Delay(50);
+                } while (DateTime.UtcNow < focusDeadline);
+                if (FocusedSearch() is null) throw new InvalidOperationException($"Settings search did not receive focus for Escape check: loaded={settingsSearchBox!.IsLoaded}, enabled={settingsSearchBox.IsEnabled}, size={settingsSearchBox.ActualWidth}x{settingsSearchBox.ActualHeight}.");
                 HandleEscape();
                 if (page != "settings" || FocusedSearch() is not null)
                     throw new InvalidOperationException("Escape did not leave search focus before navigating.");
@@ -284,6 +297,17 @@ public sealed partial class MainWindow : Window
                 dismissSheet(); await activityPreview;
                 if (dismissSheet is not null) throw new InvalidOperationException("SSH activity detail did not close.");
                 checks.Add("PASS SSH activity opens details with diagnostics and closes cleanly");
+                settingsCategory = "About"; ShowPage("settings");
+                availableUpdate = new WindowsUpdateRelease("v9.0.0", new Version(9, 0, 0, 0), new Uri("https://github.com/Mark4551124015/Harbor_ssh/releases/tag/v9.0.0"),
+                    new WindowsUpdateAsset("Harbor-Windows-x64-self-contained.zip", new Uri("https://github.com/Mark4551124015/Harbor_ssh/releases/download/v9.0.0/Harbor-Windows-x64-self-contained.zip"), 100, false), null);
+                SetUpdateStatus("ZIP-only Windows update available; manual replacement required."); RenderSettings(); await Task.Delay(240);
+                if (updateActionButton?.Visibility != Visibility.Visible || Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(updateActionButton) != "Download Windows ZIP")
+                    throw new InvalidOperationException("ZIP update was incorrectly presented as an installer.");
+                availableUpdate = availableUpdate with { Asset = availableUpdate.Asset! with { Name = "Harbor-Windows-x64-self-contained-Setup.exe", Installer = true } };
+                RenderSettings();
+                if (Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(updateActionButton!) != "Download and install update") throw new InvalidOperationException("Installer update action was not available.");
+                availableUpdate = null; SetUpdateStatus("Check for a newer Windows version."); RenderSettings(); settingsCategory = "All";
+                checks.Add("PASS Windows update UI distinguishes ZIP download from installer upgrade");
                 var group = SidebarHosts.Children.OfType<HarborHostSection>().First();
                 var firstRow = group.FirstRow;
                 group.Toggle(); await Task.Delay(140); group.Toggle(); await Task.Delay(340);
@@ -421,6 +445,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowNotice(string text, InfoBarSeverity severity = InfoBarSeverity.Informational)
     {
+        Notice.ActionButton = null;
         Notice.Message = text;
         Notice.Severity = severity;
         Notice.IsOpen = true;

@@ -4,7 +4,10 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
     [string]$Dotnet = '',
-    [string]$OutputDirectory = ''
+    [string]$OutputDirectory = '',
+    [string]$Version = '',
+    [ValidateRange(0, 65534)]
+    [int]$Build = 0
 )
 
 Set-StrictMode -Version Latest
@@ -24,11 +27,16 @@ New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 $rid = if ($Architecture -eq 'ARM64') { 'win-arm64' } else { 'win-x64' }
 $project = Join-Path $PSScriptRoot 'Harbor.Windows\Harbor.Windows.csproj'
 $summary = @()
+$versionArguments = @()
+if ($Version) {
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must have the form major.minor.patch.' }
+    $versionArguments = @("-p:Version=$Version", "-p:AssemblyVersion=$Version.$Build", "-p:FileVersion=$Version.$Build", "-p:InformationalVersion=$Version+$Build")
+}
 foreach ($variant in @('self-contained', 'framework-dependent')) {
     $bundleName = "Harbor-Windows-$Architecture-$variant"
     $publish = Join-Path $OutputDirectory $bundleName
     $contained = if ($variant -eq 'self-contained') { 'true' } else { 'false' }
-    & $Dotnet publish $project -c $Configuration "-p:Platform=$Architecture" -r $rid --self-contained $contained "-p:PublishTrimmed=$contained" '-p:TrimMode=partial' '-p:WindowsAppSDKSelfContained=true' '-p:DebugType=None' '-p:DebugSymbols=false' -o $publish --nologo
+    & $Dotnet publish $project -c $Configuration "-p:Platform=$Architecture" -r $rid --self-contained $contained "-p:PublishTrimmed=$contained" '-p:TrimMode=partial' '-p:WindowsAppSDKSelfContained=true' '-p:DebugType=None' '-p:DebugSymbols=false' @versionArguments -o $publish --nologo
     if ($LASTEXITCODE -ne 0) { throw "Publishing $variant failed ($LASTEXITCODE)." }
     $runtime = if ($contained -eq 'true') {
         'Includes the .NET runtime. No separate .NET installation is required.'
