@@ -1,7 +1,7 @@
 name: macos_ssh_tool
 description: A high-performance SSH manager for macOS.
 publish_to: 'none'
-version: 1.0.5+7
+version: 1.0.6+8
 
 environment:
   sdk: ">=3.10.0 <4.0.0"

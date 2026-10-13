@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.6
+
+### Added
+
+- Add a native Windows application preview with SSH host management, grouped connections, and Local, Remote, and SOCKS port forwarding.
+- Publish Windows x64 and ARM64 packages in both self-contained and framework-dependent .NET 10 variants.
+- Keep sidebar group titles pinned while scrolling until the next group replaces them.
+
+### Build and distribution
+
+- Publish a stable release with build number 8 and Windows packages alongside the universal macOS ZIP and DMG.
+- Include all macOS and Windows release archives in the shared SHA-256 checksum file.
+
 ## 1.0.5
 
 ### Fixed
