@@ -95,8 +95,41 @@ jobs:
           name: release-assets
           path: dist/*
           if-no-files-found: error
+  build-windows:
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, ARM64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test Windows SSH configuration and process handling
+        shell: pwsh
+        env:
+          WINDOWS_ARCH: ${{ matrix.architecture }}
+        run: ./windows/build.ps1 -Task Test -Architecture $env:WINDOWS_ARCH
+      - name: Package .NET runtime variants
+        shell: pwsh
+        env:
+          WINDOWS_ARCH: ${{ matrix.architecture }}
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP ("windows-" + $env:WINDOWS_ARCH)
+          ./windows/package.ps1 -Architecture $env:WINDOWS_ARCH -OutputDirectory $output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-release-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/windows-${{ matrix.architecture }}/*.zip
+          if-no-files-found: error
   publish:
-    needs: [validate, build]
+    needs: [validate, build, build-windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -110,12 +143,18 @@ jobs:
         with:
           name: release-assets
           path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: windows-release-*
+          path: dist
+          merge-multiple: true
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
+          (cd dist && sha256sum -- *.dmg *.zip release-manifest.json > SHA256SUMS.txt)
           python3 scripts/release.py notes > "$RUNNER_TEMP/release-notes.md"
           # Public beta builds remain eligible for the in-app updater.
           case "$RELEASE_TAG" in
