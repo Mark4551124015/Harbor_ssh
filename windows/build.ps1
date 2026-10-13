@@ -30,7 +30,7 @@ if ($Task -eq 'Test') {
 }
 if ($Task -eq 'Publish') {
     $output = Join-Path $PSScriptRoot "artifacts\$rid"
-    Invoke-Dotnet @('publish', $project, '-c', $Configuration, "-p:Platform=$Architecture", '-r', $rid, '--self-contained', 'true', '-o', $output, '--nologo')
+    Invoke-Dotnet @('publish', $project, '-c', $Configuration, "-p:Platform=$Architecture", '-r', $rid, '--self-contained', 'true', '-p:PublishTrimmed=true', '-p:TrimMode=partial', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $output, '--nologo')
     Write-Host "Published Harbor to $output. Keep the entire folder together."
     return
 }

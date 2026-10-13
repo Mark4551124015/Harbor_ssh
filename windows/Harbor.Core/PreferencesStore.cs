@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Harbor.Core;
 
@@ -51,7 +52,7 @@ public sealed class PreferencesStore(string path)
     {
         if (!File.Exists(Path)) return;
         var text = await File.ReadAllTextAsync(Path);
-        var next = JsonSerializer.Deserialize<Preferences>(text) ?? throw new InvalidDataException("Settings file is empty.");
+        var next = JsonSerializer.Deserialize(text, PreferencesJsonContext.Default.Preferences) ?? throw new InvalidDataException("Settings file is empty.");
         if (next.Theme is not ("System" or "Light" or "Dark")) throw new InvalidDataException("Unknown theme in Windows settings.");
         next.Favorites = new HashSet<string>(next.Favorites ?? [], StringComparer.OrdinalIgnoreCase);
         next.Forwards ??= [];
@@ -86,7 +87,7 @@ public sealed class PreferencesStore(string path)
         try
         {
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-            await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(Value, new JsonSerializerOptions { WriteIndented = true }));
+            await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(Value, PreferencesJsonContext.Default.Preferences));
             File.Move(temporary, Path, overwrite: true);
         }
         finally
@@ -96,3 +97,7 @@ public sealed class PreferencesStore(string path)
         }
     }
 }
+
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(Preferences))]
+internal partial class PreferencesJsonContext : JsonSerializerContext;

@@ -10,17 +10,17 @@ namespace Harbor.Desktop;
 internal static class HarborFocusReveal
 {
     /// <summary>Native compositor blur, with the macOS launch hold and smooth focus reveal.</summary>
-    internal static async Task PlayAsync(Grid host, int milliseconds, float radius, float hold = 0)
+    internal static async Task PlayAsync(Grid host, int milliseconds, float radius, float hold = 0, bool blurIn = false)
     {
         var overlay = new Grid();
         Grid.SetRowSpan(overlay, Math.Max(1, host.RowDefinitions.Count));
         Grid.SetColumnSpan(overlay, Math.Max(1, host.ColumnDefinitions.Count));
         host.Children.Add(overlay);
-        try { await AnimateAsync(overlay, milliseconds, radius, hold); }
+        try { await AnimateAsync(overlay, milliseconds, radius, hold, blurIn); }
         finally { host.Children.Remove(overlay); }
     }
 
-    private static async Task AnimateAsync(Grid overlay, int milliseconds, float radius, float hold)
+    private static async Task AnimateAsync(Grid overlay, int milliseconds, float radius, float hold, bool blurIn)
     {
         overlay.UpdateLayout();
         var compositor = ElementCompositionPreview.GetElementVisual(overlay).Compositor;
@@ -42,14 +42,14 @@ internal static class HarborFocusReveal
         using var easing = compositor.CreateCubicBezierEasingFunction(new Vector2(0.65f, 0), new Vector2(0.35f, 1));
         using var focus = compositor.CreateScalarKeyFrameAnimation();
         focus.Duration = TimeSpan.FromMilliseconds(milliseconds);
-        focus.InsertKeyFrame(0, radius);
+        focus.InsertKeyFrame(0, blurIn ? 0 : radius);
         if (hold > 0) focus.InsertKeyFrame(hold, radius);
-        focus.InsertKeyFrame(1, 0, easing);
+        focus.InsertKeyFrame(1, blurIn ? radius : 0, easing);
         brush.StartAnimation("Focus.BlurAmount", focus);
         using var opacity = compositor.CreateScalarKeyFrameAnimation();
-        opacity.Duration = focus.Duration; opacity.InsertKeyFrame(0, 1);
+        opacity.Duration = focus.Duration; opacity.InsertKeyFrame(0, blurIn ? 0 : 1);
         if (hold > 0) opacity.InsertKeyFrame(hold, 1);
-        opacity.InsertKeyFrame(1, 0, easing); visual.StartAnimation("Opacity", opacity);
+        opacity.InsertKeyFrame(1, blurIn ? 1 : 0, easing); visual.StartAnimation("Opacity", opacity);
         try { await Task.Delay(milliseconds + 50); }
         finally
         {

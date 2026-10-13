@@ -101,7 +101,7 @@ internal sealed class HarborTabStrip : Grid
     {
         foreach (var tab in tabs)
         {
-            tab.Text.Foreground = tab.Value == selected ? (capsule ? selectedTint : foreground) : muted;
+            tab.Text.Foreground = tab.Value == selected ? selectedTint : muted;
             tab.Text.FontWeight = tab.Value == selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
         }
         UpdateLayout();

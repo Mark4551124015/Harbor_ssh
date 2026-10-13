@@ -16,6 +16,7 @@ internal sealed class HarborHostSection : StackPanel
     private readonly Func<bool> motion;
     private readonly FontIcon chevron;
     internal Button HeaderButton { get; }
+    internal Grid HeaderSlot { get; }
     private readonly FontIcon groupIcon;
     private readonly bool plainGroup;
     private readonly Border countBadge;
@@ -51,18 +52,19 @@ internal sealed class HarborHostSection : StackPanel
             HeaderButton.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         else if (color is SolidColorBrush solid)
             HeaderButton.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(24, solid.Color.R, solid.Color.G, solid.Color.B));
-        var tint = color is SolidColorBrush groupColor ? groupColor.Color : Microsoft.UI.Colors.Gray;
-        countBadge.Background = plainGroup ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : new SolidColorBrush(Windows.UI.Color.FromArgb(33, tint.R, tint.G, tint.B));
+        var tintBrush = plainGroup ? HeaderButton.Foreground as SolidColorBrush : color as SolidColorBrush;
+        var tint = tintBrush?.Color ?? Microsoft.UI.Colors.Gray;
+        countBadge.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(plainGroup ? (byte)26 : (byte)33, tint.R, tint.G, tint.B));
         countBadge.BorderThickness = new Thickness(0);
         countBadge.BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        countBadge.CornerRadius = new CornerRadius(plainGroup ? 0 : 5);
+        countBadge.CornerRadius = new CornerRadius(5);
         countLabel.Foreground = plainGroup ? HeaderButton.Foreground : color;
     }
 
     public HarborHostSection(string title, int count, StackPanel rows, bool collapsed, Func<bool> motion, bool favorites = false)
     {
         this.rows = rows; this.collapsed = collapsed; this.motion = motion; plainGroup = title == "Ungrouped";
-        Spacing = 4;
+        Spacing = 6;
         var header = new Grid { ColumnSpacing = 6 };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -73,28 +75,32 @@ internal sealed class HarborHostSection : StackPanel
         groupIcon = MainWindow.HarborIcon(favorites ? Symbol.SolidStar : Symbol.Folder, 14);
         if (title != "Ungrouped") symbols.Children.Add(groupIcon);
         header.Children.Add(symbols);
-        var name = new TextBlock { Text = title == "Ungrouped" ? title.ToUpperInvariant() : title, FontSize = title == "Ungrouped" ? 10 : 12, FontWeight = title == "Ungrouped" ? Microsoft.UI.Text.FontWeights.Medium : Microsoft.UI.Text.FontWeights.SemiBold, Style = (Style)Application.Current.Resources[title == "Ungrouped" ? "HarborMutedTextStyle" : "HarborTextStyle"] };
+        var name = new TextBlock { Text = title == "Ungrouped" ? title.ToUpperInvariant() : title, FontSize = title == "Ungrouped" ? 10 : 12, FontWeight = title == "Ungrouped" ? Microsoft.UI.Text.FontWeights.Medium : Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Style = (Style)Application.Current.Resources[title == "Ungrouped" ? "HarborMutedTextStyle" : "HarborTextStyle"] };
         Grid.SetColumn(name, 1); header.Children.Add(name);
-        var badgeText = new TextBlock { Text = count.ToString(), FontFamily = (FontFamily)Application.Current.Resources["HarborUIFont"], FontSize = 10, VerticalAlignment = VerticalAlignment.Center };
+        var badgeText = new TextBlock { Text = count.ToString(), FontFamily = (FontFamily)Application.Current.Resources["HarborUIFont"], FontSize = 10, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center };
         countLabel = badgeText;
         countBadge = new Border
         {
             Child = badgeText,
-            Padding = new Thickness(6, 2, 6, 2),
+            Width = 28,
+            Height = 20,
             CornerRadius = new CornerRadius(5),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(countBadge, 2); header.Children.Add(countBadge);
         var button = new Button { Style = (Style)Application.Current.Resources["HarborQuietButtonStyle"], Content = header, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            HorizontalAlignment = HorizontalAlignment.Stretch, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(0),
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Padding = new Thickness(10, title == "Ungrouped" ? 4 : 7, 10, title == "Ungrouped" ? 4 : 7) };
         button.Click += (_, _) => Toggle();
         HeaderButton = button;
-        Children.Add(button);
+        HeaderSlot = new Grid();
+        HeaderSlot.Children.Add(button);
+        Children.Add(HeaderSlot);
         body = new Grid { Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible };
         rowHighlight.RenderTransform = rowOffset; body.Children.Add(rowHighlight);
         body.Children.Add(rows);

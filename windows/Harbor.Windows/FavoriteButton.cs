@@ -16,6 +16,7 @@ public sealed partial class MainWindow
         });
         button.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"];
         button.Content = HarborIcon(pinned ? Symbol.SolidStar : Symbol.Favorite, size);
+        AddButtonHover(button);
         button.Foreground = ThemeBrush(pinned ? "HarborAccentBrush" : "HarborMutedBrush");
         button.Width = 30; button.Height = 30; button.Padding = new Thickness(0);
         button.VerticalAlignment = VerticalAlignment.Center;

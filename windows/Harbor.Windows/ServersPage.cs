@@ -85,7 +85,7 @@ public sealed partial class MainWindow
                     var commandHeading = new Grid(); commandHeading.Children.Add(Text("SSH command", 14));
                     var copy = ActionButton("", async () => Copy(SshCommands.DisplayCommand("ssh.exe", await ConnectionArgumentsAsync(host.Alias))), Symbol.Copy);
                     copy.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"];
-                    copy.Padding = new Thickness(0); copy.Content = HarborIcon(Symbol.Copy, 14);
+                    copy.Padding = new Thickness(0); copy.Content = HarborIcon(Symbol.Copy, 14); AddButtonHover(copy);
                     copy.HorizontalAlignment = HorizontalAlignment.Right;
                     ToolTipService.SetToolTip(copy, "Copy SSH command");
                     Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(copy, "Copy SSH command");

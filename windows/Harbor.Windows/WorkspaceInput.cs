@@ -15,6 +15,8 @@ public sealed partial class MainWindow
     private AutoSuggestBox? settingsSearchBox;
     private string? sidebarFocusKey;
     private string? previousSidebarFocusKey;
+    private readonly Stack<string> pageHistory = new();
+    private bool navigatingBack;
     private static bool KeyDown(VirtualKey key) => (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) != 0;
 
     private void SelectHost(SshHost host, string? group = null)
@@ -62,6 +64,11 @@ public sealed partial class MainWindow
 
     private void ConfigureKeyboard()
     {
+        Root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
+        Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, args) =>
+        {
+            if (args.Key == VirtualKey.Escape && (!args.Handled || FocusedSearch() is not null)) args.Handled = HandleEscape();
+        }), true);
         void Shortcut(VirtualKey key, VirtualKeyModifiers modifiers, Func<Task> action)
         {
             var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
@@ -78,7 +85,7 @@ public sealed partial class MainWindow
         Shortcut(VirtualKey.N, VirtualKeyModifiers.Control, () => EditHostAsync(null));
         Shortcut(VirtualKey.F, VirtualKeyModifiers.Control, () =>
         {
-            if (page == "settings") settingsSearchBox?.Focus(FocusState.Programmatic); else SidebarSearch.Focus(FocusState.Programmatic);
+            if (page == "settings") settingsSearchBox?.Focus(FocusState.Programmatic); else OpenSidebarSearch();
             return Task.CompletedTask;
         });
         Shortcut((VirtualKey)188, VirtualKeyModifiers.Control, () => { ShowPage("settings"); return Task.CompletedTask; });
@@ -99,5 +106,40 @@ public sealed partial class MainWindow
             else { selectedHosts.UnionWith(config.Document.Hosts.Where(host => $"{host.Alias} {host.Subtitle}".Contains(search, StringComparison.OrdinalIgnoreCase)).Select(host => host.Alias)); UpdateHostSelection(); }
             return Task.CompletedTask;
         });
+    }
+
+    private AutoSuggestBox? FocusedSearch()
+    {
+        for (var current = FocusManager.GetFocusedElement(Root.XamlRoot) as DependencyObject; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
+            if (current is AutoSuggestBox searchBox) return searchBox;
+        return null;
+    }
+
+    private bool HandleEscape()
+    {
+        if (rowDragActive) return false; // Let the sidebar drag handler cancel first.
+        if (quickConnectCompletion is not null) { quickConnectCompletion.TrySetResult(null); return true; }
+        if (dismissSheet is not null) { dismissSheet(); return true; }
+        AutoSuggestBox? focusedSearch = null;
+        for (var current = FocusManager.GetFocusedElement(Root.XamlRoot) as DependencyObject; current is not null; current = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(current))
+        {
+            if (current is ContentDialog) return false;
+            if (current is AutoSuggestBox searchBox) focusedSearch = searchBox;
+        }
+        if (focusedSearch is not null)
+        {
+            focusedSearch.Text = "";
+            if (focusedSearch == SidebarSearch) CloseSidebarSearch();
+            else NewConnectionButton.Focus(FocusState.Programmatic);
+            return true;
+        }
+        if (sidebarSearchVisible) { CloseSidebarSearch(); return true; }
+        var previous = pageHistory.Count > 0 ? pageHistory.Pop() : "workbench";
+        if (page == previous) return false;
+        navigatingBack = true;
+        try { ShowPage(previous); }
+        finally { navigatingBack = false; }
+        NewConnectionButton.Focus(FocusState.Programmatic);
+        return true;
     }
 }

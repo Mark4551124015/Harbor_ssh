@@ -54,6 +54,7 @@ public sealed partial class MainWindow
             name.Padding = new Thickness(0); name.Foreground = ThemeBrush("HarborTextBrush");
             name.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             name.Content = new TextBlock { Text = host.Alias, FontFamily = (FontFamily)Application.Current.Resources["HarborUIFont"], FontSize = 13, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
+            AddButtonHover(name);
             var label = Stack(4); label.Children.Add(name);
             label.Children.Add(Muted(preferences.Value.HostGroups.GetValueOrDefault(host.Alias, "Ungrouped"), 11));
             Grid.SetColumn(label, 1); top.Children.Add(label);
@@ -75,6 +76,7 @@ public sealed partial class MainWindow
             connect.Foreground = ThemeBrush("HarborAccentBrush"); connect.HorizontalAlignment = HorizontalAlignment.Right; connect.Padding = new Thickness(0);
             footer.Children.Add(connect); content.Children.Add(footer);
             var hostCard = Card(content);
+            AddCardHover(hostCard);
             hostCard.Tapped += (_, args) =>
             {
                 var source = args.OriginalSource as DependencyObject;
@@ -102,9 +104,9 @@ public sealed partial class MainWindow
         var activityHeading = new Grid(); activityHeading.Children.Add(Text("Local SSH activity", 18));
         var viewAll = ActionButton("View all", () => { ShowPage("activity"); return Task.CompletedTask; });
         viewAll.HorizontalAlignment = HorizontalAlignment.Right; activityHeading.Children.Add(viewAll); panel.Children.Add(activityHeading);
-        var active = processes?.Sessions.Where(session => session.Active).Take(4).ToList() ?? [];
-        if (active.Count == 0) panel.Children.Add(Muted("No Harbor forwarding processes running."));
-        foreach (var session in active) panel.Children.Add(Card(Text($"{session.Rule.HostAlias}  ·  {session.Rule.Label}\nPID {session.ProcessId}  ·  {session.Status}")));
+        var observed = localSshMonitor?.Current ?? [];
+        if (observed.Count == 0) panel.Children.Add(Muted("No local SSH processes running."));
+        foreach (var entry in observed.Take(4)) panel.Children.Add(ActivityRow(entry));
         panel.Children.Add(Text("Recently opened", 18));
         var recentHosts = preferences.Value.RecentHosts.Select(alias => config.Document.Hosts.FirstOrDefault(host => host.Alias == alias)).Where(host => host is not null).Take(5).ToList();
         if (recentHosts.Count == 0) panel.Children.Add(Muted("No recent connections yet. Hosts appear here after opening Terminal."));

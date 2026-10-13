@@ -11,6 +11,8 @@ public sealed partial class MainWindow
 {
     private readonly string[] navigationPages = ["workbench", "activity", "forwards", "keys"];
     private Storyboard? navigationMotion;
+    private Storyboard? sidebarSearchMotion;
+    private bool sidebarSearchVisible;
     private int navigationIndex = -1;
     private HashSet<string> priorSidebarRows = [];
     private HashSet<string> priorSidebarGroups = [];
@@ -23,10 +25,10 @@ public sealed partial class MainWindow
         for (var i = 0; i < labels.Length; i++)
         {
             var target = navigationPages[i];
-            var button = ActionButton(labels[i], () => { ShowPage(target); return Task.CompletedTask; }, icons[i]);
+            var button = ActionButton(labels[i], () => { ShowPage(target); return Task.CompletedTask; }, icons[i], hover: false);
             button.Height = 42;
             button.Style = (Style)Application.Current.Resources["HarborNavigationButtonStyle"];
-            AddSidebarHover(button);
+            AddButtonHover(button, fillBounds: true);
             NavigationItems.Children.Add(button);
         }
         var menu = new MenuFlyout();
@@ -85,11 +87,103 @@ public sealed partial class MainWindow
         search = sender.Text;
         if (initialized) RenderSidebarHosts();
     }
+
+    private void OpenSidebarSearch()
+    {
+        if (sidebarSearchVisible) { SidebarSearch.Focus(FocusState.Programmatic); return; }
+        sidebarSearchVisible = true;
+        AnimateSidebarSearch(true);
+        SidebarSearch.Focus(FocusState.Programmatic);
+    }
+
+    private void CloseSidebarSearch(bool returnFocus = true)
+    {
+        if (!sidebarSearchVisible) return;
+        sidebarSearchVisible = false;
+        if (returnFocus) NewConnectionButton.Focus(FocusState.Programmatic);
+        SidebarSearch.Text = "";
+        if (search.Length > 0) { search = ""; RenderSidebarHosts(); }
+        AnimateSidebarSearch(false);
+    }
+
+    private void SidebarSearchPanel_SizeChanged(object sender, SizeChangedEventArgs args) =>
+        SidebarSearchPanel.Clip = new RectangleGeometry { Rect = new Windows.Foundation.Rect(0, 0, args.NewSize.Width, args.NewSize.Height) };
+
+    private void AnimateSidebarSearch(bool visible)
+    {
+        // Preserve the visible values when an interrupted animation reverses.
+        var height = SidebarSearchPanel.ActualHeight;
+        var opacity = SidebarSearchPanel.Opacity;
+        sidebarSearchMotion?.Stop();
+        sidebarSearchMotion = null;
+        SidebarSearchPanel.Height = height;
+        SidebarSearchPanel.Opacity = opacity;
+        SidebarSearchPanel.Visibility = Visibility.Visible;
+        SidebarSearchPanel.IsHitTestVisible = visible;
+        var targetHeight = visible ? 36 : 0;
+        var targetOpacity = visible ? 1 : 0;
+        if (!MotionEnabled)
+        {
+            SidebarSearchPanel.Height = targetHeight;
+            SidebarSearchPanel.Opacity = targetOpacity;
+            SidebarSearchPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            return;
+        }
+        var motion = new Storyboard();
+        var resize = new DoubleAnimation
+        {
+            From = height, To = targetHeight, Duration = TimeSpan.FromMilliseconds(220),
+            EnableDependentAnimation = true,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+        };
+        var fade = new DoubleAnimation
+        {
+            From = opacity, To = targetOpacity, Duration = TimeSpan.FromMilliseconds(220),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+        };
+        Storyboard.SetTarget(resize, SidebarSearchPanel); Storyboard.SetTargetProperty(resize, "Height"); motion.Children.Add(resize);
+        Storyboard.SetTarget(fade, SidebarSearchPanel); Storyboard.SetTargetProperty(fade, "Opacity"); motion.Children.Add(fade);
+        motion.Completed += (_, _) =>
+        {
+            if (sidebarSearchMotion != motion) return;
+            motion.Stop();
+            SidebarSearchPanel.Height = targetHeight;
+            SidebarSearchPanel.Opacity = targetOpacity;
+            SidebarSearchPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            sidebarSearchMotion = null;
+        };
+        sidebarSearchMotion = motion;
+        motion.Begin();
+    }
+
+    private void SidebarSearch_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
+    {
+        if (args.Key != Windows.System.VirtualKey.Escape) return;
+        args.Handled = true;
+        CloseSidebarSearch();
+    }
+
+    private void SidebarRoot_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
+    {
+        if (!sidebarSearchVisible || SidebarSearch.Text.Length > 0) return;
+        var source = args.OriginalSource as DependencyObject;
+        if (IsWithin(source, SidebarSearchPanel)) return;
+        CloseSidebarSearch(returnFocus: false);
+    }
+
+    private static bool IsWithin(DependencyObject? element, DependencyObject ancestor)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+            if (ReferenceEquals(current, ancestor)) return true;
+        return false;
+    }
+
     private async void NewConnection_Click(object sender, RoutedEventArgs args) => await RunAsync(() => EditHostAsync(null));
     private void Settings_Click(object sender, RoutedEventArgs args) => ShowPage("settings");
 
     private void RenderSidebarHosts()
     {
+        RestoreStickyHeader();
         priorSidebarPositions = CaptureSidebarPositions();
         priorSidebarGroups = SidebarHosts.Children.OfType<HarborHostSection>().Select(section => section.HeaderButton.Tag as string ?? "").ToHashSet();
         priorSidebarRows = SidebarHosts.Children.OfType<HarborHostSection>().SelectMany(section => section.HostButtons.Select(button => $"{section.HeaderButton.Tag}\0{button.Tag}")).ToHashSet();
@@ -116,6 +210,7 @@ public sealed partial class MainWindow
         SidebarHosts.UpdateLayout();
         AnimateSidebarReflow(priorSidebarPositions);
         sidebarWasRendered = true;
+        UpdateStickyHeader();
     }
 
     private Dictionary<string, double> CaptureSidebarPositions()
@@ -197,11 +292,11 @@ public sealed partial class MainWindow
             var favorite = FavoriteButton(host, 12);
             favorite.Width = 24; favorite.Height = 24;
             Grid.SetColumn(favorite, 2); row.Children.Add(favorite);
-            var button = new Button { Content = row, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            var button = new Button { Content = row, MinHeight = 44, HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 Style = (Style)Application.Current.Resources["HarborNavigationButtonStyle"], Padding = new Thickness(6, 4, 6, 4) };
             button.Tag = host.Alias;
             button.DataContext = name;
-            AddSidebarHover(button);
+            AddButtonHover(button);
             button.Click += (_, _) => { if (!suppressSidebarClick) SelectHost(host, name); };
             button.RightTapped += (_, _) => SelectContextHost(host, name);
             button.ContextFlyout = ConnectionMenu(host);
@@ -214,7 +309,6 @@ public sealed partial class MainWindow
             preferences.Value.CollapsedGroups.Contains(name), () => MotionEnabled, favorites);
         section.HeaderButton.ContextFlyout = ConnectionMenu(null, name);
         section.HeaderButton.Tag = name;
-        AddSidebarHover(section.HeaderButton);
         ConfigureSidebarDrop(section.HeaderButton, name, null);
         ConfigureGroupDrag(section.HeaderButton, name);
         section.SetAppearance(preferences.Value.GroupIcons.TryGetValue(name, out var icon) ? HostIconGlyphs.GetValueOrDefault(icon, "\uE8B7") : null, GroupBrush(name));

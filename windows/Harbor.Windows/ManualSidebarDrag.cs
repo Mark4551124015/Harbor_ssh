@@ -31,7 +31,7 @@ public sealed partial class MainWindow
 
     private void ConfigureManualSidebarDragSurface()
     {
-        LibraryScrollViewer.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler((_, args) =>
+        SidebarLibraryViewport.AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler((_, args) =>
         {
             if (rowDragStart is not Point start) return;
             var point = args.GetCurrentPoint(LibraryScrollViewer);
@@ -49,7 +49,7 @@ public sealed partial class MainWindow
                 LibraryScrollViewer.ChangeView(null, Math.Clamp(LibraryScrollViewer.VerticalOffset + (y < 24 ? -12 : 12), 0, LibraryScrollViewer.ScrollableHeight), null, true);
             rowDropGroup = "Ungrouped"; rowDropAlias = null; rowDropAfter = true;
             rowDropValid = false;
-            foreach (var section in SidebarHosts.Children.OfType<HarborHostSection>())
+            foreach (var section in SidebarHosts.Children.OfType<HarborHostSection>().OrderByDescending(section => ReferenceEquals(section, stickySection)))
             {
                 var header = section.HeaderButton;
                 var headerTop = header.TransformToVisual(LibraryScrollViewer).TransformPoint(new Point());
@@ -77,7 +77,7 @@ public sealed partial class MainWindow
                 rowDropValid = true; SidebarSelectionRectangle.Visibility = Visibility.Visible; return;
             }            SidebarSelectionRectangle.Visibility = Visibility.Collapsed;
         }), true);
-        LibraryScrollViewer.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(async (_, args) =>
+        SidebarLibraryViewport.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(async (_, args) =>
         {
             var active = rowDragActive;
             rowDragStart = null; rowDragActive = false;

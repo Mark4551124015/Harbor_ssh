@@ -63,7 +63,7 @@ public sealed partial class MainWindow
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var text = Stack(5); text.Children.Add(Text(definition?.Name ?? option.Name, 13)); text.Children.Add(Muted(definition?.Description ?? "Imported SSH option. Kept as configured.", 11)); top.Children.Add(text);
                 var remove = ActionButton("", () => { draft.Remove(option); Populate(); UpdateHostSaveState(); return Task.CompletedTask; });
-                remove.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"]; remove.Padding = new Thickness(0); remove.Content = HarborIcon(Symbol.Delete, 14); remove.IsEnabled = host.CanEdit; ToolTipService.SetToolTip(remove, $"Remove {option.Name}"); Grid.SetColumn(remove, 1); top.Children.Add(remove); panel.Children.Add(top);
+                remove.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"]; remove.Padding = new Thickness(0); remove.Content = HarborIcon(Symbol.Delete, 14); AddButtonHover(remove); remove.IsEnabled = host.CanEdit; ToolTipService.SetToolTip(remove, $"Remove {option.Name}"); Grid.SetColumn(remove, 1); top.Children.Add(remove); panel.Children.Add(top);
                 var input = new HarborTextBox { Text = option.Value, PlaceholderText = definition?.Example ?? "Value", IsEnabled = host.CanEdit };
                 input.TextChanged += (_, _) => { option.Value = input.Text; UpdateHostSaveState(); };
                 if (focus == option.Name) input.Loaded += (_, _) => { input.StartBringIntoView(); input.Focus(FocusState.Programmatic); };
@@ -88,7 +88,7 @@ public sealed partial class MainWindow
                 content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var labels = Stack(5); labels.Children.Add(Text(option.Name, 13)); labels.Children.Add(Muted(option.Description, 11)); content.Children.Add(labels);
                 var plus = HarborIcon(Symbol.Add, 15); plus.Foreground = ThemeBrush("HarborAccentBrush"); Grid.SetColumn(plus, 1); content.Children.Add(plus);
-                var button = ActionButton("", () => { choose?.Invoke(option); return Task.CompletedTask; }); button.Style = (Style)Application.Current.Resources["HarborQuietButtonStyle"]; button.Content = content; button.Padding = new Thickness(12); button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Stretch; rows.Children.Add(button);
+                var button = ActionButton("", () => { choose?.Invoke(option); return Task.CompletedTask; }); button.Style = (Style)Application.Current.Resources["HarborQuietButtonStyle"]; button.Content = content; button.Padding = new Thickness(12); button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Stretch; AddButtonHover(button); rows.Children.Add(button);
             }
             if (rows.Children.Count == 0) rows.Children.Add(Muted("No matching options"));
         }

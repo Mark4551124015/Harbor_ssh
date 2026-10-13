@@ -46,7 +46,7 @@ public sealed partial class MainWindow
                 automatic.Toggled += async (_, _) => await RunAsync(async () => { preferences.Value.AutoCheckUpdates = automatic.IsOn; await SavePreferencesAsync(); });
                 about.Children.Add(SettingRow("Automatically check for updates", "Check GitHub Releases when Harbor starts.", automatic));
                 about.Children.Add(ActionButton("Check for updates", CheckVersionAsync, Symbol.Refresh));
-                about.Children.Add(Muted("The workspace follows Harbor on macOS. Installation of updates is manual. Activity shows Harbor's forwarding processes.")); sections.Children.Add(Card(about));
+                about.Children.Add(Muted("The workspace follows Harbor on macOS. Installation of updates is manual. Activity monitors local OpenSSH client processes and Harbor-managed forwards.")); sections.Children.Add(Card(about));
             }
             if (sections.Children.Count == 0) sections.Children.Add(Muted("No matching settings."));
             var canvas = new Grid { Style = (Style)Application.Current.Resources["HarborCanvasStyle"] };
@@ -54,7 +54,7 @@ public sealed partial class MainWindow
             contentTransition.Show(canvas, MotionEnabled);
         }
         var tabs = new HarborTabStrip(categories, settingsCategory, ThemeBrush("HarborTextBrush"), ThemeBrush("HarborMutedBrush"), ThemeBrush("HarborAccentBrush"), () => MotionEnabled,
-            category => { settingsCategory = category; Populate(); });
+            category => { settingsCategory = category; Populate(); }, selectedTint: ThemeBrush("HarborAccentBrush"));
         layout.Children.Add(tabs);
         searchBox.TextChanged += (_, _) => { settingsSearch = searchBox.Text; Populate(); };
         Populate(); PageContent.Children.Add(layout);
@@ -83,13 +83,14 @@ public sealed partial class MainWindow
         {
             var hex = Root.ActualTheme == ElementTheme.Dark ? dark : light;
             var color = Windows.UI.Color.FromArgb(255, (byte)(hex >> 16), (byte)(hex >> 8), (byte)hex);
-            var button = ActionButton(preferences.Value.Accent == name ? "✓" : " ", async () =>
+            var button = ActionButton("", async () =>
             {
                 preferences.Value.Accent = name; UpdateAccent(); await SavePreferencesAsync(); RenderSettings();
-            });
+            }, hover: false);
             button.Style = (Style)Application.Current.Resources["HarborQuietButtonStyle"];
             button.Background = new SolidColorBrush(color); button.Foreground = new SolidColorBrush(Microsoft.UI.Colors.White);
             button.Width = 32; button.Height = 32; button.Padding = new Thickness(0); button.CornerRadius = new CornerRadius(16);
+            SetColorSwatchContent(button, preferences.Value.Accent == name);
             ToolTipService.SetToolTip(button, name); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name); accents.Children.Add(button);
         }
         section.Children.Add(SettingRow("Accent color", preferences.Value.Accent, accents));
@@ -213,5 +214,19 @@ public sealed partial class MainWindow
             };
         }
         return selector;
+    }
+
+    private void SetColorSwatchContent(Button button, bool selected)
+    {
+        button.HorizontalContentAlignment = HorizontalAlignment.Center;
+        button.VerticalContentAlignment = VerticalAlignment.Center;
+        button.Content = new FontIcon
+        {
+            Glyph = "\uE73E", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+            FontSize = 14, Width = 16, Height = 16,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), Opacity = selected ? 1 : 0
+        };
+        AddButtonHover(button);
     }
 }

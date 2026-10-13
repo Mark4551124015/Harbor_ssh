@@ -27,30 +27,39 @@
           <RowDefinition Height="*" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <StackPanel Orientation="Horizontal" Spacing="14" Margin="14,10,0,8">
-          <local:HarborMarkView Width="34" Height="34" />
-          <StackPanel>
-            <TextBlock Text="Harbor" FontFamily="{StaticResource HarborUIFont}" FontSize="25" FontWeight="SemiBold" Foreground="{ThemeResource HarborTextBrush}" />
-            <TextBlock Text="SSH WORKSPACE" FontFamily="{StaticResource HarborUIFont}" FontSize="8" CharacterSpacing="170" Foreground="{ThemeResource HarborMutedBrush}" />
+        <Grid Margin="14,10,0,8">
+          <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+            <local:HarborMarkView Width="34" Height="34" />
+            <StackPanel>
+              <TextBlock Text="Harbor" FontFamily="{StaticResource HarborUIFont}" FontSize="25" FontWeight="SemiBold" Foreground="{ThemeResource HarborTextBrush}" />
+              <TextBlock Text="SSH WORKSPACE" FontFamily="{StaticResource HarborUIFont}" FontSize="8" CharacterSpacing="170" Foreground="{ThemeResource HarborMutedBrush}" />
+            </StackPanel>
           </StackPanel>
-        </StackPanel>
+        </Grid>
         <Grid Grid.Row="1">
           <Border x:Name="NavigationHighlight" Height="42" VerticalAlignment="Top" CornerRadius="8" Background="{ThemeResource HarborSelectionBrush}" IsHitTestVisible="False">
             <Border.RenderTransform><TranslateTransform x:Name="NavigationHighlightOffset" /></Border.RenderTransform>
           </Border>
           <StackPanel x:Name="NavigationItems" Spacing="6" />
         </Grid>
-        <Grid Grid.Row="2" RowSpacing="10">
+        <Grid Grid.Row="2" RowSpacing="4">
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <AutoSuggestBox x:Name="SidebarSearch" PlaceholderText="Search connections" TextChanged="SidebarSearch_TextChanged">
-            <AutoSuggestBox.QueryIcon><SymbolIcon Symbol="Find" /></AutoSuggestBox.QueryIcon>
-          </AutoSuggestBox>
-          <ScrollViewer x:Name="LibraryScrollViewer" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Hidden" Background="Transparent">
+          <Grid x:Name="SidebarSearchPanel" Height="0" Opacity="0" Visibility="Collapsed" SizeChanged="SidebarSearchPanel_SizeChanged">
+            <AutoSuggestBox x:Name="SidebarSearch" Height="36" MinHeight="0" VerticalAlignment="Top" PlaceholderText="Search connections" TextChanged="SidebarSearch_TextChanged" KeyDown="SidebarSearch_KeyDown">
+              <AutoSuggestBox.QueryIcon><SymbolIcon Symbol="Find" /></AutoSuggestBox.QueryIcon>
+            </AutoSuggestBox>
+          </Grid>
+          <Grid x:Name="SidebarLibraryViewport" Grid.Row="1">
+          <ScrollViewer x:Name="LibraryScrollViewer" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Hidden" Background="Transparent">
             <StackPanel x:Name="SidebarHosts" Spacing="6" Background="Transparent" />
           </ScrollViewer>
-          <Border x:Name="SidebarSelectionRectangle" Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" IsHitTestVisible="False" BorderBrush="{ThemeResource HarborAccentBrush}" Background="{ThemeResource HarborSelectionBrush}" BorderThickness="1" CornerRadius="2">
+          <Border x:Name="StickyGroupHeader" Background="{ThemeResource HarborSidebarBrush}" Padding="0,0,0,6" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed">
+            <Border.RenderTransform><TranslateTransform x:Name="StickyGroupHeaderOffset" /></Border.RenderTransform>
+          </Border>
+          <Border x:Name="SidebarSelectionRectangle" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" IsHitTestVisible="False" BorderBrush="{ThemeResource HarborAccentBrush}" Background="{ThemeResource HarborSelectionBrush}" BorderThickness="1" CornerRadius="2">
             <Border.RenderTransform><TranslateTransform x:Name="SidebarSelectionOffset" /></Border.RenderTransform>
           </Border>
+          </Grid>
         </Grid>
         <StackPanel Grid.Row="3" Spacing="12">
           <Button x:Name="NewConnectionButton" HorizontalAlignment="Stretch" CornerRadius="9" Style="{StaticResource HarborActionButtonStyle}" Padding="14,12" Click="NewConnection_Click">

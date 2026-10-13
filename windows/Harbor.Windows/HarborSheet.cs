@@ -8,7 +8,7 @@ namespace Harbor.Desktop;
 public sealed partial class MainWindow
 {
     private Action? dismissSheet;
-    private async Task<T?> ShowSheetAsync<T>(string title, UIElement content, string primary, Func<T> accept, double width, double height, Func<bool>? validate = null, Action<Action<T?>>? bindSelection = null) where T : class
+    private async Task<T?> ShowSheetAsync<T>(string title, UIElement content, string primary, Func<T> accept, double width, double height, Func<bool>? validate = null, Action<Action<T?>>? bindSelection = null, string dismissLabel = "Cancel") where T : class
     {
         var completion = new TaskCompletionSource<T?>();
         dismissSheet = () => completion.TrySetResult(null);
@@ -19,7 +19,7 @@ public sealed partial class MainWindow
         var heading = new Grid(); heading.Children.Add(Text(title, 20));
         if (bindSelection is not null)
         {
-            var cancel = ActionButton("Cancel", () => { completion.TrySetResult(null); return Task.CompletedTask; }); cancel.HorizontalAlignment = HorizontalAlignment.Right; heading.Children.Add(cancel);
+            var cancel = ActionButton(dismissLabel, () => { completion.TrySetResult(null); return Task.CompletedTask; }); cancel.HorizontalAlignment = HorizontalAlignment.Right; heading.Children.Add(cancel);
         }
         layout.Children.Add(heading); Grid.SetRow((FrameworkElement)content, 1); layout.Children.Add(content);
         var actions = Row(8); actions.HorizontalAlignment = HorizontalAlignment.Right;

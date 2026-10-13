@@ -1,6 +1,7 @@
 using Harbor.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -16,6 +17,7 @@ public sealed partial class MainWindow : Window
     private readonly string? smokeReport;
     private readonly string? smokeDirectory;
     private SshProcessManager? processes;
+    private LocalSshProcessMonitor? localSshMonitor;
     private string page = "workbench";
     private string search = "";
     private string? selectedAlias;
@@ -44,6 +46,8 @@ public sealed partial class MainWindow : Window
         preferences = new PreferencesStore(smokeDirectory is not null ? Path.Combine(smokeDirectory, "settings.json") :
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Harbor.Windows", "settings.json"));
         InitializeComponent();
+        AddButtonHover(SettingsButton);
+        Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(SidebarRoot_PointerPressed), true);
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
         SidebarVersion.Text = $"v{version?.Major}.{version?.Minor}.{version?.Build}";
         transition = new HarborPageTransition(PageLayers);
@@ -51,6 +55,7 @@ public sealed partial class MainWindow : Window
         ConfigureKeyboard();
         ConfigureSidebarSelection();
         ConfigureManualSidebarDragSurface();
+        ConfigureStickyHeaders();
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "harbor.ico"));
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBar);
@@ -74,7 +79,7 @@ public sealed partial class MainWindow : Window
         if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
             SystemBackdrop = new MicaBackdrop();
         Root.Loaded += Initialize;
-        Closed += (_, _) => processes?.Dispose();
+        Closed += (_, _) => { localSshMonitor?.Dispose(); processes?.Dispose(); };
     }
 
     private async void Initialize(object sender, RoutedEventArgs args)
@@ -98,6 +103,12 @@ public sealed partial class MainWindow : Window
             });
         }
         catch (Exception exception) { errors.Add(exception.Message); }
+        localSshMonitor = new LocalSshProcessMonitor();
+        localSshMonitor.Changed += () => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (page == "activity") RenderActivity();
+            if (page == "workbench") RenderWorkbench();
+        });
         PopulateHosts();
         ShowPage(preferences.Value.StartPage is "forwards" or "keys" or "activity" ? preferences.Value.StartPage : "workbench");
         if (errors.Count > 0) ShowNotice(string.Join("\n", errors), InfoBarSeverity.Warning);
@@ -182,6 +193,97 @@ public sealed partial class MainWindow : Window
                 if (PageLayers.Children.Count != 1 || !PageLayers.Children[0].IsHitTestVisible)
                     throw new InvalidOperationException($"Rapid navigation did not settle: {PageLayers.Children.Count} layers, opacity {PageLayers.Children.OfType<Grid>().Last().Opacity}.");
                 checks.Add("PASS interrupted navigation retains its canvas and disables outgoing input");
+                Root.UpdateLayout();
+                var libraryY = LibraryScrollViewer.TransformToVisual(Root).TransformPoint(new Windows.Foundation.Point()).Y;
+                OpenSidebarSearch(); await Task.Delay(90); Root.UpdateLayout();
+                var searchHeight = SidebarSearchPanel.ActualHeight;
+                var shiftedY = LibraryScrollViewer.TransformToVisual(Root).TransformPoint(new Windows.Foundation.Point()).Y;
+                if (searchHeight <= 0 || searchHeight >= 36 || Math.Abs(shiftedY - libraryY - searchHeight) > 1)
+                    throw new InvalidOperationException($"Search expansion jumped: height {searchHeight}, library shift {shiftedY - libraryY}.");
+                CloseSidebarSearch(); Root.UpdateLayout();
+                if (Math.Abs(SidebarSearchPanel.ActualHeight - searchHeight) > 1)
+                    throw new InvalidOperationException("Reversing search expansion jumped to an endpoint.");
+                await Task.Delay(280); Root.UpdateLayout();
+                if (SidebarSearchPanel.Visibility != Visibility.Collapsed || Math.Abs(LibraryScrollViewer.TransformToVisual(Root).TransformPoint(new Windows.Foundation.Point()).Y - libraryY) > 1)
+                    throw new InvalidOperationException("Search collapse did not restore the sidebar layout.");
+                checks.Add("PASS sidebar search height and library slide together, including reversal");
+                foreach (var hostRow in SidebarHosts.Children.OfType<HarborHostSection>().SelectMany(section => section.HostButtons))
+                {
+                    var hoverLayer = (Grid)hostRow.Content;
+                    var rowContent = hoverLayer.Children.OfType<Grid>().Single();
+                    if (hostRow.ActualHeight < 44 || rowContent.ActualHeight < 28 || rowContent.ActualWidth <= 0)
+                        throw new InvalidOperationException($"Server row {hostRow.Tag} collapsed: button {hostRow.ActualHeight}, content {rowContent.ActualWidth}x{rowContent.ActualHeight}.");
+                }
+                checks.Add("PASS server rows retain their content height after search layout changes");
+                ShowPage("workbench"); ShowPage("keys"); ShowPage("settings");
+                await Task.Delay(300);
+                Root.UpdateLayout(); settingsSearchBox!.Focus(FocusState.Programmatic);
+                if (FocusedSearch() is null) throw new InvalidOperationException("Settings search did not receive focus for Escape check.");
+                HandleEscape();
+                if (page != "settings" || FocusedSearch() is not null)
+                    throw new InvalidOperationException("Escape did not leave search focus before navigating.");
+                HandleEscape();
+                if (page != "keys") throw new InvalidOperationException("Escape did not return to the previous page.");
+                HandleEscape();
+                if (page != "workbench") throw new InvalidOperationException("Escape did not return home.");
+                checks.Add("PASS Escape leaves search focus, then returns to the previous page and home");
+                SidebarLibraryViewport.Height = 120;
+                SidebarLibraryViewport.VerticalAlignment = VerticalAlignment.Top;
+                Root.UpdateLayout();
+                LibraryScrollViewer.ChangeView(null, 0, null, true); await Task.Delay(80);
+                UpdateStickyHeader();
+                var stickyGroups = SidebarHosts.Children.OfType<HarborHostSection>().ToArray();
+                var originalHeader = stickyGroups[0].HeaderButton;
+                if (stickySection != stickyGroups[0] || StickyGroupHeader.Child != originalHeader || stickyGroups[0].HeaderSlot.Children.Count != 0)
+                    throw new InvalidOperationException("Top header was not prepared as a single fixed button before scrolling.");
+                var originalHeaderHeight = originalHeader.ActualHeight;
+                foreach (var offset in new double[] { 1, 2, 4, 8, 12 })
+                {
+                    LibraryScrollViewer.ChangeView(null, offset, null, true); await Task.Delay(40); Root.UpdateLayout(); UpdateStickyHeader();
+                    if (stickySection != stickyGroups[0] || StickyGroupHeader.Child != originalHeader || Math.Abs(LibraryScrollViewer.VerticalOffset - offset) > 0.5 || Math.Abs(StickyGroupHeaderOffset.Y) > 0.5)
+                        throw new InvalidOperationException($"First scroll changed the sticky header or scroll offset at {offset}.");
+                    if (Math.Abs(originalHeader.ActualHeight - originalHeaderHeight) > 0.5 || StickyGroupHeader.ActualHeight - originalHeader.ActualHeight < 5.5)
+                        throw new InvalidOperationException("Sticky header changed button height or lost its bottom gap.");
+                }
+                LibraryScrollViewer.ChangeView(null, 12, null, true); await Task.Delay(100); UpdateStickyHeader();
+                if (StickyGroupHeader.Child != originalHeader || stickySection != stickyGroups[0] || !originalHeader.AllowDrop || originalHeader.ContextFlyout is null)
+                    throw new InvalidOperationException("Sticky header did not preserve the original interactive button.");
+                var nextTop = stickyGroups[1].HeaderSlot.TransformToVisual(SidebarHosts).TransformPoint(new Windows.Foundation.Point()).Y;
+                LibraryScrollViewer.ChangeView(null, nextTop - StickyGroupHeader.Height / 2, null, true); await Task.Delay(100); UpdateStickyHeader();
+                if (stickySection != stickyGroups[0] || StickyGroupHeaderOffset.Y >= -1)
+                    throw new InvalidOperationException("The next group did not push the sticky header upward.");
+                LibraryScrollViewer.ChangeView(null, nextTop + 2, null, true); await Task.Delay(100); UpdateStickyHeader();
+                if (stickySection != stickyGroups[1]) throw new InvalidOperationException("Sticky header did not switch to the next group.");
+                stickySection.Toggle(); await Task.Delay(340); UpdateStickyHeader();
+                if (StickyGroupHeader.Child is Button pinned && !SidebarHosts.Children.OfType<HarborHostSection>().Any(section => section.HeaderButton == pinned))
+                    throw new InvalidOperationException("Collapsed group left a stale sticky header.");
+                stickyGroups[1].Toggle(); await Task.Delay(340);
+                LibraryScrollViewer.ChangeView(null, LibraryScrollViewer.ScrollableHeight, null, true); await Task.Delay(100); UpdateStickyHeader();
+                if (stickySection != stickyGroups.Last()) throw new InvalidOperationException("Incorrect sticky header at the list bottom.");
+                OpenSidebarSearch(); await Task.Delay(280);
+                SidebarSearch.Text = "no-matching-sticky-host";
+                SidebarSearch_TextChanged(SidebarSearch, null!); await Task.Delay(100); UpdateStickyHeader();
+                if (stickySection is not null || StickyGroupHeader.Child is not null) throw new InvalidOperationException($"Filtering left a stale sticky header: query '{search}', sections {SidebarHosts.Children.Count}.");
+                SidebarSearch.Text = ""; SidebarSearch_TextChanged(SidebarSearch, null!); await Task.Delay(100);
+                CloseSidebarSearch(); await Task.Delay(280);
+                preferences.Value.SectionOrder = stickyGroups.Select(section => (string)section.HeaderButton.Tag).Reverse().ToList();
+                RenderSidebarHosts(); Root.UpdateLayout(); UpdateStickyHeader();
+                if (stickySection is not null && !SidebarHosts.Children.Contains(stickySection)) throw new InvalidOperationException("Reordering left an old sticky section.");
+                await Task.Delay(340); // Let the existing group reorder animation settle.
+                LibraryScrollViewer.ChangeView(null, 0, null, true); await Task.Delay(100); UpdateStickyHeader();
+                var topGroup = SidebarHosts.Children.OfType<HarborHostSection>().First();
+                if (stickySection != topGroup || StickyGroupHeader.Child != topGroup.HeaderButton || SidebarHosts.Children.OfType<HarborHostSection>().Any(section => section.HeaderSlot.Children.Count != (section == stickySection ? 0 : 1)))
+                    throw new InvalidOperationException("Returning to the top left a duplicate or empty header slot.");
+                SidebarLibraryViewport.Height = double.NaN; SidebarLibraryViewport.VerticalAlignment = VerticalAlignment.Stretch;
+                Root.UpdateLayout();
+                checks.Add("PASS sticky headers: top, push-off, replacement, collapse, bottom, filtering, reorder, resize and retained menu/drop button");
+                var activityPreview = ShowActivityDetailAsync(new ObservedSshProcess(-1, DateTimeOffset.Now.AddMinutes(-2), "ssh.exe", "ssh", "127.0.0.1:22", "127.0.0.1:1080"));
+                await Task.Delay(350);
+                if (dismissSheet is null) throw new InvalidOperationException("SSH activity detail did not open.");
+                await CapturePreviewAsync($"{smokeReport}-activity-detail.png");
+                dismissSheet(); await activityPreview;
+                if (dismissSheet is not null) throw new InvalidOperationException("SSH activity detail did not close.");
+                checks.Add("PASS SSH activity opens details with diagnostics and closes cleanly");
                 var group = SidebarHosts.Children.OfType<HarborHostSection>().First();
                 var firstRow = group.FirstRow;
                 group.Toggle(); await Task.Delay(140); group.Toggle(); await Task.Delay(340);
@@ -207,6 +309,13 @@ public sealed partial class MainWindow : Window
             if (PageLayers.Children.Count != 1 || PageLayers.Children.OfType<Grid>().Single().Opacity != 1)
                 throw new InvalidOperationException("Reduced motion did not bypass transitions.");
             checks.Add("PASS reduced motion");
+            await preferences.SaveAsync();
+            var restoredPreferences = new PreferencesStore(preferences.Path);
+            await restoredPreferences.LoadAsync();
+            if (restoredPreferences.Value.Accent != preferences.Value.Accent || restoredPreferences.Value.Forwards.Count != preferences.Value.Forwards.Count ||
+                !restoredPreferences.Value.Favorites.SetEquals(preferences.Value.Favorites) || restoredPreferences.Value.HostGroups.Count != preferences.Value.HostGroups.Count)
+                throw new InvalidOperationException("Published settings serialization roundtrip failed.");
+            checks.Add("PASS published settings serialization roundtrip");
             File.WriteAllLines(smokeReport!, checks.Append("PASS Windows UI smoke test"));
         }
         catch (Exception exception) { File.WriteAllText(smokeReport!, exception.ToString()); }
@@ -237,6 +346,11 @@ public sealed partial class MainWindow : Window
 
     private void ShowPage(string next)
     {
+        if (next != page && !navigatingBack)
+        {
+            if (next == "workbench") pageHistory.Clear();
+            else pageHistory.Push(page);
+        }
         if (next != "servers") { selectedHosts.Clear(); sidebarFocusKey = null; UpdateHostSelection(); }
         else if (selectedAlias is not null && (sidebarFocusKey is null || !sidebarFocusKey.EndsWith("\0" + selectedAlias, StringComparison.Ordinal)))
         {
@@ -254,7 +368,7 @@ public sealed partial class MainWindow : Window
             "workbench" => ("Connection desk", "Pick a host. Get to work."),
             "forwards" => ("Port mappings", "Secure routes for your local and remote services."),
             "keys" => ("SSH keys", "Public keys and fingerprints from your Windows SSH folder."),
-            "activity" => ("SSH activity", "SSH forwarding processes started by this Harbor window."),
+            "activity" => ("SSH activity", "Local OpenSSH connections, including ssh.exe launched by terminals and other applications."),
             "settings" => ("Settings", "A workspace that feels like yours."),
             _ => ("Connection", "Manage this host and open it in your terminal.")
         };
@@ -344,7 +458,7 @@ public sealed partial class MainWindow : Window
         return label;
     }
 
-    private Button ActionButton(string label, Func<Task> action, Symbol? icon = null, bool accent = false)
+    private Button ActionButton(string label, Func<Task> action, Symbol? icon = null, bool accent = false, bool hover = true)
     {
         var button = new Button { Style = (Style)Application.Current.Resources["HarborActionButtonStyle"], Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(8), Foreground = ThemeBrush("HarborTextBrush") };
         var content = Row();
@@ -352,6 +466,7 @@ public sealed partial class MainWindow : Window
         if (icon is not null) content.Children.Add(HarborIcon(icon.Value));
         if (label.Length > 0) content.Children.Add(new TextBlock { Text = label, FontFamily = (FontFamily)Application.Current.Resources["HarborUIFont"], FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
         button.Content = content;
+        if (hover) AddButtonHover(button);
         if (accent) ApplyAccentButton(button);
         button.Click += async (_, _) =>
         {

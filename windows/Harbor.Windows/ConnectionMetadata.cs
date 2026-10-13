@@ -180,13 +180,14 @@ public sealed partial class MainWindow
             var colors = Row(10);
             foreach (var entry in GroupPalette)
             {
-                var button = ActionButton(preferences.Value.GroupColors.GetValueOrDefault(group) == entry.Key ? "✓" : "", async () =>
+                var button = ActionButton("", async () =>
                 {
                     preferences.Value.GroupColors[group] = entry.Key;
                     await SavePreferencesAsync(); PopulateHosts(); Populate();
-                });
+                }, hover: false);
                 button.Style = (Style)Application.Current.Resources["HarborQuietButtonStyle"];
                 button.Width = 30; button.Height = 30; button.Padding = new Thickness(0); button.CornerRadius = new CornerRadius(15);
+                SetColorSwatchContent(button, preferences.Value.GroupColors.GetValueOrDefault(group) == entry.Key);
                 var packed = entry.Value; button.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)(packed >> 16), (byte)(packed >> 8), (byte)packed));
                 ToolTipService.SetToolTip(button, entry.Key); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, entry.Key); colors.Children.Add(button);
             }

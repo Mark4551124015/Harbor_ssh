@@ -67,7 +67,7 @@ public sealed partial class MainWindow
                     var toggle = ActionButton(IsMappingActive(rule) ? "Stop" : "Start", () => ToggleMappingAsync(rule), IsMappingActive(rule) ? Symbol.Stop : Symbol.Play);
                     toggle.Width = 120; actions.Children.Add(toggle);
                     var edit = ActionButton("", () => EditForwardAsync(rule));
-                    edit.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"]; edit.Padding = new Thickness(0); edit.Content = HarborIcon(Symbol.Edit, 15);
+                    edit.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"]; edit.Padding = new Thickness(0); edit.Content = HarborIcon(Symbol.Edit, 15); AddButtonHover(edit);
                     ToolTipService.SetToolTip(edit, "Edit mapping"); actions.Children.Add(edit);
                     var remove = ActionButton("", async () =>
                     {
@@ -75,7 +75,7 @@ public sealed partial class MainWindow
                         preferences.Value.Forwards.RemoveAll(value => value.Id == rule.Id);
                         await SavePreferencesAsync(); RenderForwards();
                     });
-                    remove.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"]; remove.Padding = new Thickness(0); remove.Content = HarborIcon(Symbol.Delete, 15);
+                    remove.Style = (Style)Application.Current.Resources["HarborIconButtonStyle"]; remove.Padding = new Thickness(0); remove.Content = HarborIcon(Symbol.Delete, 15); AddButtonHover(remove);
                     ToolTipService.SetToolTip(remove, "Remove mapping"); actions.Children.Add(remove);
                     Grid.SetColumn(actions, 2); card.Children.Add(actions);
                     var container = Card(card); container.Tag = rule.Id; container.ContextFlyout = MappingMenu(rule);
@@ -171,39 +171,4 @@ public sealed partial class MainWindow
         }
     }
 
-    private void RenderActivity()
-    {
-        if (page != "activity") return;
-        PageContent.Children.Clear();
-        var panel = Stack(16);
-        var toolbar = new WrapPanel();
-        toolbar.Children.Add(ActionButton("Refresh", () => { RenderActivity(); return Task.CompletedTask; }, Symbol.Refresh));
-        toolbar.Children.Add(ActionButton("Stop all forwards", async () =>
-        {
-            var dialog = Dialog("Stop all port forwards?", Text("Connections through these forwards will close."), "Stop all");
-            dialog.DefaultButton = ContentDialogButton.Close;
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-            foreach (var session in processes?.Sessions ?? []) processes?.Stop(session.Rule.Id);
-        }, Symbol.Stop));
-        HeaderActions.Children.Clear(); HeaderActions.Children.Add(toolbar);
-        var sessions = processes?.Sessions ?? [];
-        if (sessions.Count == 0)
-        {
-            var empty = Stack();
-            empty.Children.Add(Text("No forwarding activity yet", 24));
-            empty.Children.Add(Muted("Start a port forward to see its process, start time and diagnostics here. Terminal connections are managed by your terminal."));
-            panel.Children.Add(Card(empty));
-        }
-        foreach (var session in sessions)
-        {
-            var info = Stack(8);
-            info.Children.Add(Text(session.Rule.HostAlias, 18));
-            info.Children.Add(Text(session.Rule.Label));
-            info.Children.Add(Muted($"PID {session.ProcessId} · Started {session.StartedAt.LocalDateTime:g} · {session.Status}"));
-            if (session.Error.Length > 0) info.Children.Add(Muted(session.Error));
-            if (session.Active) info.Children.Add(ActionButton("Stop process", () => { processes?.Stop(session.Rule.Id); return Task.CompletedTask; }, Symbol.Stop));
-            panel.Children.Add(Card(info));
-        }
-        PageContent.Children.Add(Scroll(panel));
-    }
 }
