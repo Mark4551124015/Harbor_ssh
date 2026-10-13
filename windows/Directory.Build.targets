@@ -1,0 +1,19 @@
+<Project>
+  <Target Name="ReadHarborVersion" BeforeTargets="GetAssemblyVersion">
+    <ReadLinesFromFile File="$(MSBuildThisFileDirectory)..\pubspec.yaml">
+      <Output TaskParameter="Lines" ItemName="_HarborPubspecLine" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_HarborVersionLine Include="@(_HarborPubspecLine)" Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Identity)', '^version:'))" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_HarborRawVersion>@(_HarborVersionLine)</_HarborRawVersion>
+      <_HarborFullVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(_HarborRawVersion)', '^version:\s*', ''))</_HarborFullVersion>
+      <Version>$([System.Text.RegularExpressions.Regex]::Replace('$(_HarborFullVersion)', '\+.*$', ''))</Version>
+      <AssemblyVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(_HarborFullVersion)', '^(\d+\.\d+\.\d+)(?:-[^+]+)?\+(\d+)$', '$1.$2'))</AssemblyVersion>
+      <FileVersion>$(AssemblyVersion)</FileVersion>
+      <InformationalVersion>$(_HarborFullVersion)</InformationalVersion>
+    </PropertyGroup>
+    <Error Condition="'$(_HarborFullVersion)' == ''" Text="Could not read Harbor version from pubspec.yaml." />
+  </Target>
+</Project>

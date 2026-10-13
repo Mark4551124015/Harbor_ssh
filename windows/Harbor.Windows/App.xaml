@@ -1,0 +1,139 @@
+<Application
+    x:Class="Harbor.Desktop.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+      </ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="HarborBackgroundBrush" Color="#F5F2ED" />
+          <SolidColorBrush x:Key="HarborSidebarBrush" Color="#ECE8E1" />
+          <SolidColorBrush x:Key="HarborSurfaceBrush" Color="#FFFDF9" />
+          <SolidColorBrush x:Key="HarborBorderBrush" Color="#DDD7CD" />
+          <SolidColorBrush x:Key="HarborTextBrush" Color="#263446" />
+          <SolidColorBrush x:Key="HarborMutedBrush" Color="#6D7884" />
+          <SolidColorBrush x:Key="HarborAccentBrush" Color="#9A5427" />
+          <SolidColorBrush x:Key="HarborSelectionBrush" Color="#3D9A5427" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Default">
+          <SolidColorBrush x:Key="HarborBackgroundBrush" Color="#111B28" />
+          <SolidColorBrush x:Key="HarborSidebarBrush" Color="#0D1520" />
+          <SolidColorBrush x:Key="HarborSurfaceBrush" Color="#182535" />
+          <SolidColorBrush x:Key="HarborBorderBrush" Color="#293747" />
+          <SolidColorBrush x:Key="HarborTextBrush" Color="#E8EDF2" />
+          <SolidColorBrush x:Key="HarborMutedBrush" Color="#94A4B5" />
+          <SolidColorBrush x:Key="HarborAccentBrush" Color="#E5A16B" />
+          <SolidColorBrush x:Key="HarborSelectionBrush" Color="#4DE5A16B" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <FontFamily x:Key="HarborUIFont">ms-appx:///Assets/InterVariable.ttf#Inter</FontFamily>
+      <Style x:Key="HarborCanvasStyle" TargetType="Grid">
+        <Setter Property="Background" Value="{ThemeResource HarborBackgroundBrush}" />
+      </Style>
+      <Style x:Key="HarborQuietButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="FontFamily" Value="{StaticResource HarborUIFont}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{ThemeResource HarborMutedBrush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="Button">
+              <Border x:Name="HarborButtonRoot" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver" />
+                    <VisualState x:Name="Pressed" />
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="HarborButtonRoot.Opacity" Value="0.4" /></VisualState.Setters></VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Foreground="{TemplateBinding Foreground}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+              </Border>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style x:Key="HarborTabButtonStyle" TargetType="Button" BasedOn="{StaticResource HarborQuietButtonStyle}">
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="HarborActionButtonStyle" TargetType="Button" BasedOn="{StaticResource HarborQuietButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource HarborSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource HarborBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Foreground" Value="{ThemeResource HarborTextBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="HarborTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+        <Setter Property="FontFamily" Value="{StaticResource HarborUIFont}" />
+        <Setter Property="Foreground" Value="{ThemeResource HarborTextBrush}" />
+        <Setter Property="Background" Value="{ThemeResource HarborSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource HarborBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="TextBox">
+              <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <ContentPresenter x:Name="HarborFieldHeader" Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}" Foreground="{TemplateBinding Foreground}" Margin="0,0,0,6" />
+                <Border x:Name="HarborFieldBorder" Grid.Row="1" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6">
+                  <Grid>
+                    <ScrollViewer x:Name="ContentElement" Padding="{TemplateBinding Padding}" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" HorizontalScrollMode="Auto" VerticalScrollMode="Auto" IsTabStop="False" />
+                    <TextBlock x:Name="HarborFieldPlaceholder" Text="{TemplateBinding PlaceholderText}" Foreground="{ThemeResource HarborMutedBrush}" Margin="{TemplateBinding Padding}" IsHitTestVisible="False" />
+                  </Grid>
+                </Border>
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+      <Style x:Key="HarborIconButtonStyle" TargetType="Button" BasedOn="{StaticResource HarborQuietButtonStyle}">
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="6" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="HarborNavigationButtonStyle" TargetType="Button" BasedOn="{StaticResource HarborQuietButtonStyle}">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{ThemeResource HarborMutedBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="14,10" />
+        <Setter Property="CornerRadius" Value="8" />
+      </Style>
+      <Style x:Key="HarborTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource HarborUIFont}" />
+        <Setter Property="Foreground" Value="{ThemeResource HarborTextBrush}" />
+      </Style>
+      <Style x:Key="HarborMutedTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource HarborUIFont}" />
+        <Setter Property="Foreground" Value="{ThemeResource HarborMutedBrush}" />
+      </Style>
+      <Style x:Key="HarborErrorTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}" />
+      </Style>
+      <Style x:Key="HarborCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource HarborSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource HarborBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="20" />
+      </Style>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

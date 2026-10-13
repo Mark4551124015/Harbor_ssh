@@ -10,7 +10,7 @@
 
 <p align="center">
   Hosts · Jump chains · Port forwards · Keys · Live activity<br />
-  Built with Flutter for macOS.
+  Flutter for macOS · Native WinUI 3 for Windows (preview).
 </p>
 
 <p align="center">
@@ -96,6 +96,65 @@ Release build:
 flutter --no-version-check build macos --release
 open build/macos/Build/Products/Release/Harbor.app
 ```
+
+## Windows native preview
+
+The Windows application is a separate C# / WinUI 3 project in `windows/`. It uses
+native Fluent controls, system accents, light/dark themes and a Mica backdrop on
+supported systems. The existing macOS application and its release workflow remain
+independent.
+
+The workspace follows the macOS layout: a persistent grouped connection sidebar,
+Connection desk overview, pinned cards, activity summary and categorized searchable
+settings. Native compositor blur reveals the app at launch; page fades (190 ms),
+group/segment motion (280 ms) and dialog focus/scale (320 ms) follow the original
+timing. Both the app's Reduce motion preference and Windows animation settings apply.
+Five Harbor accent colors and the original light/dark palette are available.
+
+The preview supports named SSH hosts, search, favorites, groups, adding/editing/deleting
+simple Host blocks, Windows Terminal connections, local/remote/SOCKS forwarding,
+public-key fingerprints, copying public keys, and interactive Ed25519/RSA 4096 key
+generation. Its Activity page tracks forwarding processes owned by this window;
+terminal sessions stay under the terminal's control.
+
+It reads `%USERPROFILE%\.ssh\config`. Saving preserves comments, unknown directives
+and other Host/Match blocks, backs up the previous file in `config_bk`, and refuses
+to overwrite a file changed since the last refresh. Compound/repeated Host blocks,
+blocks with multiple identity files, and blocks containing Include directives are
+edited through **Open SSH config**. Only literal aliases in the main file are listed;
+OpenSSH itself resolves Include files, Match conditions and inherited options when
+connecting. Windows preferences and forwarding rules are stored separately in
+`%LOCALAPPDATA%\Harbor.Windows\settings.json`.
+
+Managed forwards bind to loopback and use noninteractive key/ssh-agent authentication.
+Connect in a terminal first to establish trust and unlock your key. They stop when
+the Harbor window closes. If a host already inherits forwarding directives, use its
+terminal connection or remove those directives before starting an individual managed
+forward. The process status does not certify that authentication or a destination
+service is ready; SSH exit diagnostics are shown on the forwarding and activity pages.
+
+Tags, drag sorting, discovery of aliases inside Include files, system-wide
+activity, automatic updates and a signed Windows installer are not yet implemented.
+
+Build on Windows 10 version 2004 or later (Windows 11 recommended) with the .NET 10
+SDK and OpenSSH Client (`ssh.exe` and `ssh-keygen.exe`). WinUI native dependencies also
+require the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
+for the target architecture. NuGet supplies the Windows SDK build tools. From the
+repository root in PowerShell:
+
+```powershell
+.\windows\build.ps1 -Task Run
+.\windows\build.ps1 -Task Test
+.\windows\build.ps1 -Task Smoke  # Requires an interactive Windows desktop; uses fictional data.
+.\windows\build.ps1 -Task Publish
+```
+
+The self-contained x64 preview is written to `windows/artifacts/win-x64/`; run
+`Harbor.Windows.exe` from that folder and keep all accompanying files together.
+`-Architecture ARM64` builds the ARM64 variant; it has not been run on ARM hardware.
+The script prefers an SDK in `.local-only/dotnet/` when present, otherwise `dotnet`
+from PATH. `-Dotnet` selects a specific SDK executable. The SDK is not committed.
+Assembly versions are derived from `pubspec.yaml`, as for the macOS release.
 
 ## Version naming
 

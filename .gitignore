@@ -51,6 +51,8 @@ app.*.map.json
 /dist/
 /dist-*/
 *.p12
+*.pfx
+*.snk
 *.p8
 *.keychain-db
 .env

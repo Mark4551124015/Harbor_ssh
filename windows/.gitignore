@@ -1,0 +1,28 @@
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+.idea/
+artifacts/
+# Standalone publish folders and installer compiler output
+**/publish/
+/installer/Output/
+/installer/*-Setup.exe
+/installers/
+*.msi
+*.msix
+*.msixbundle
+*.msixupload
+*.appx
+*.appxbundle
+*.appxupload
+*.wixobj
+*.wixpdb
+# Test and coverage reports
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+*.user
+*.suo
+*.cache
