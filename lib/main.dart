@@ -2576,7 +2576,6 @@ class _MainWindowState extends State<MainWindow>
 
   Future<void> _moveSelection(SSHStore store, SSHHost host, String group) =>
       store.moveHosts(_selectionFor(host), group.isEmpty ? 'Ungrouped' : group);
-  final GlobalKey _selectedRowKey = GlobalKey();
 
   @override
   void dispose() {
@@ -2603,7 +2602,8 @@ class _MainWindowState extends State<MainWindow>
     if (group != null) _collapsed.remove(group);
     _showHost(store, host);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final rowContext = _selectedRowKey.currentContext;
+      final rowContext =
+          _rowDropKeys[(store.groupFor(host), host)]?.currentContext;
       if (rowContext != null) {
         Scrollable.ensureVisible(
           rowContext,
@@ -2772,6 +2772,7 @@ class _MainWindowState extends State<MainWindow>
                                   : null,
                               children: [
                                 HarborNavItem(
+                                  key: const ValueKey('sidebar-nav:workbench'),
                                   icon: CupertinoIcons.square_grid_2x2,
                                   label: 'Workbench',
                                   selected: _workbench,
@@ -2784,6 +2785,7 @@ class _MainWindowState extends State<MainWindow>
                                   }),
                                 ),
                                 HarborNavItem(
+                                  key: const ValueKey('sidebar-nav:activity'),
                                   icon: CupertinoIcons.waveform_path,
                                   label: 'Activity',
                                   selected: _activityPage,
@@ -2796,6 +2798,7 @@ class _MainWindowState extends State<MainWindow>
                                   }),
                                 ),
                                 HarborNavItem(
+                                  key: const ValueKey('sidebar-nav:mappings'),
                                   icon: CupertinoIcons.arrow_right_arrow_left,
                                   label: 'Port mappings',
                                   selected: _mappingPage,
@@ -2808,6 +2811,7 @@ class _MainWindowState extends State<MainWindow>
                                   }),
                                 ),
                                 HarborNavItem(
+                                  key: const ValueKey('sidebar-nav:keys'),
                                   icon: CupertinoIcons.lock_shield,
                                   label: 'Keys',
                                   selected: _keysPage,
@@ -3024,20 +3028,7 @@ class _MainWindowState extends State<MainWindow>
                                               }
                                             },
                                             child: LibraryHostRow(
-                                              key:
-                                                  !_workbench &&
-                                                      !_mappingPage &&
-                                                      !_keysPage &&
-                                                      !_activityPage &&
-                                                      !_settingsPage &&
-                                                      identical(
-                                                        store.currentHost,
-                                                        host,
-                                                      ) &&
-                                                      section.key ==
-                                                          selectionSection
-                                                  ? _selectedRowKey
-                                                  : null,
+                                              key: ObjectKey(host),
                                               host: host,
                                               selected:
                                                   !_workbench &&
@@ -3361,7 +3352,6 @@ class HostDetailTabs extends StatefulWidget {
 
 class _HostDetailTabsState extends State<HostDetailTabs> {
   late final MacosTabController _tabController;
-  int? _hoveredTab;
 
   @override
   void initState() {
@@ -3462,64 +3452,16 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
               Row(
                 children: [
                   Expanded(
-                    child: Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: [
-                        for (final entry in [
-                          'Overview',
-                          'General',
-                          'Connection',
-                          'Advanced',
-                          'Port mapping',
-                        ].asMap().entries)
-                          MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            onEnter: (_) =>
-                                setState(() => _hoveredTab = entry.key),
-                            onExit: (_) => setState(() {
-                              if (_hoveredTab == entry.key) _hoveredTab = null;
-                            }),
-                            child: GestureDetector(
-                              key: ValueKey('host-tab:${entry.key}'),
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                _tabController.index = entry.key;
-                              },
-                              child: AnimatedContainer(
-                                duration: harborMotion(context, 140),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _tabController.index == entry.key
-                                      ? HarborColors.of(
-                                          context,
-                                        ).accent.withValues(alpha: 0.13)
-                                      : _hoveredTab == entry.key
-                                      ? HarborColors.of(
-                                          context,
-                                        ).text.withValues(alpha: 0.06)
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  entry.value,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                    color: _tabController.index == entry.key
-                                        ? HarborColors.of(context).accent
-                                        : _hoveredTab == entry.key
-                                        ? HarborColors.of(context).text
-                                        : CupertinoColors.systemGrey,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                    child: HarborSlidingTabs(
+                      labels: const [
+                        'Overview',
+                        'General',
+                        'Connection',
+                        'Advanced',
+                        'Port mapping',
                       ],
+                      selectedIndex: _tabController.index,
+                      onSelected: (index) => _tabController.index = index,
                     ),
                   ),
                 ],
@@ -3643,7 +3585,7 @@ class _HostDetailTabsState extends State<HostDetailTabs> {
                   style: theme.typography.headline.copyWith(fontSize: 13),
                 ),
               ),
-              MacosIconButton(
+              HarborIconButton(
                 icon: const Icon(CupertinoIcons.doc_on_doc, size: 14),
                 onPressed: () => context.read<SSHStore>().copyHostCommand(host),
               ),
@@ -4222,18 +4164,20 @@ class _LibraryHostRowState extends State<LibraryHostRow> {
         onTap: widget.onTap,
         onSecondaryTapUp: widget.onSecondaryTapUp,
         child: AnimatedContainer(
-          duration: harborMotion(context, 190),
+          duration: harborHoverMotion(context),
+          curve: Curves.easeOutCubic,
           margin: const EdgeInsets.only(bottom: 3),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(7),
-            color: widget.selected
-                ? widget.slidingSelection
-                      ? Colors.transparent
-                      : colors.accent.withValues(alpha: dark ? 0.16 : 0.12)
-                : showHover
-                ? CupertinoColors.systemGrey.withValues(alpha: 0.1)
-                : Colors.transparent,
+            color: Color.alphaBlend(
+              widget.selected && !widget.slidingSelection
+                  ? colors.accent.withValues(alpha: dark ? 0.16 : 0.12)
+                  : Colors.transparent,
+              showHover
+                  ? CupertinoColors.systemGrey.withValues(alpha: 0.1)
+                  : Colors.transparent,
+            ),
           ),
           child: Row(
             children: [
@@ -4285,7 +4229,9 @@ class _LibraryHostRowState extends State<LibraryHostRow> {
               ),
               IgnorePointer(
                 ignoring: !showHover && !store.isFavorite(widget.host),
-                child: Opacity(
+                child: AnimatedOpacity(
+                  duration: harborHoverMotion(context),
+                  curve: Curves.easeOutCubic,
                   opacity: showHover || store.isFavorite(widget.host) ? 1 : 0,
                   child: HarborFavoriteButton(host: widget.host, size: 13),
                 ),
@@ -4597,7 +4543,7 @@ class _QuickConnectSheetState extends State<QuickConnectSheet> {
                       style: MacosTheme.of(context).typography.title2,
                     ),
                     const Spacer(),
-                    MacosIconButton(
+                    HarborIconButton(
                       icon: const Icon(CupertinoIcons.xmark, size: 14),
                       onPressed: () => Navigator.pop(context),
                     ),

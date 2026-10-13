@@ -81,6 +81,72 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  for (final reducedMotion in [false, true]) {
+    testWidgets(
+      'Tab selection slides without shifting labels, reducedMotion=$reducedMotion',
+      (tester) async {
+        final store = SSHStore(load: false);
+        addTearDown(store.dispose);
+        store.preferences = store.preferences.copyWith(
+          reduceMotion: reducedMotion,
+        );
+        var selected = 0;
+        await tester.pumpWidget(
+          ChangeNotifierProvider<SSHStore>.value(
+            value: store,
+            child: HarborApplication(
+              home: StatefulBuilder(
+                builder: (context, setState) => Center(
+                  child: SizedBox(
+                    width: 600,
+                    child: HarborSlidingTabs(
+                      labels: const [
+                        'Overview',
+                        'General',
+                        'Connection',
+                        'Advanced',
+                        'Port mapping',
+                      ],
+                      selectedIndex: selected,
+                      onSelected: (value) => setState(() => selected = value),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final indicator = find.byKey(const ValueKey('host-tab-selection'));
+        final start = tester.getRect(indicator);
+        final target = tester.getRect(find.byKey(const ValueKey('host-tab:3')));
+        final anchors = List.generate(
+          5,
+          (index) => tester.getRect(find.byKey(ValueKey('host-tab:$index'))),
+        );
+        await tester.tap(find.byKey(const ValueKey('host-tab:3')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(indicator, findsOneWidget);
+        final middle = tester.getRect(indicator);
+        if (reducedMotion) {
+          expect(middle, target);
+        } else {
+          expect(middle.left, greaterThan(start.left));
+          expect(middle.left, lessThan(target.left));
+        }
+        for (var index = 0; index < anchors.length; index++) {
+          expect(
+            tester.getRect(find.byKey(ValueKey('host-tab:$index'))),
+            anchors[index],
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(tester.getRect(indicator), target);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   for (final size in [const Size(960, 680), const Size(1200, 800)]) {
     testWidgets(
       'Server tab geometry stays fixed through hover and selection at $size',

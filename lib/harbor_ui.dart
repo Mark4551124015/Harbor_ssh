@@ -186,6 +186,61 @@ Duration harborMotion(BuildContext context, [int milliseconds = 220]) =>
     ? Duration.zero
     : Duration(milliseconds: milliseconds);
 
+Duration harborHoverMotion(BuildContext context) => harborMotion(context, 140);
+
+class HarborHoverTransition extends StatelessWidget {
+  final bool active;
+  final Widget Function(BuildContext, double) builder;
+  const HarborHoverTransition({
+    super.key,
+    required this.active,
+    required this.builder,
+  });
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween<double>(end: active ? 1 : 0),
+    duration: harborHoverMotion(context),
+    curve: Curves.easeOutCubic,
+    builder: (context, progress, _) => builder(context, progress),
+  );
+}
+
+class HarborIconButton extends StatefulWidget {
+  final Widget icon;
+  final VoidCallback? onPressed;
+  const HarborIconButton({super.key, required this.icon, this.onPressed});
+  @override
+  State<HarborIconButton> createState() => _HarborIconButtonState();
+}
+
+class _HarborIconButtonState extends State<HarborIconButton> {
+  bool hovered = false;
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: widget.onPressed == null
+        ? SystemMouseCursors.basic
+        : SystemMouseCursors.click,
+    onEnter: (_) => setState(() => hovered = true),
+    onExit: (_) => setState(() => hovered = false),
+    child: AnimatedContainer(
+      duration: harborHoverMotion(context),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: HarborColors.of(context).text.withValues(
+          alpha: hovered && widget.onPressed != null ? 0.07 : 0,
+        ),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: MacosIconButton(
+        icon: widget.icon,
+        onPressed: widget.onPressed,
+        hoverColor: Colors.transparent,
+        backgroundColor: Colors.transparent,
+      ),
+    ),
+  );
+}
+
 class HarborGlass extends StatelessWidget {
   final Widget child;
   final double radius;
@@ -327,7 +382,8 @@ class _HarborButtonState extends State<HarborButton> {
             duration: harborMotion(context, 100),
             curve: Curves.easeOutCubic,
             child: AnimatedContainer(
-              duration: harborMotion(context, 120),
+              duration: harborHoverMotion(context),
+              curve: Curves.easeOutCubic,
               width: widget.fullWidth ? double.infinity : null,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
               decoration: BoxDecoration(
@@ -780,63 +836,63 @@ class _HarborNavItemState extends State<HarborNavItem> {
           if (!widget.selected) widget.onTap();
         },
         pressedOpacity: 1,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: selected ? 1 : 0),
-          duration: harborMotion(context, 190),
-          curve: Curves.easeInOutCubic,
-          builder: (context, selection, _) => Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            decoration: BoxDecoration(
-              color: Color.lerp(
-                hovered
-                    ? colors.text.withValues(alpha: 0.055)
-                    : Colors.transparent,
-                sliding
-                    ? Colors.transparent
-                    : colors.accent.withValues(alpha: 0.12),
-                selection,
+        child: HarborHoverTransition(
+          active: hovered,
+          builder: (context, hoverProgress) => TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: selected ? 1 : 0),
+            duration: harborMotion(context, 190),
+            curve: Curves.easeInOutCubic,
+            builder: (context, selection, _) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+              decoration: BoxDecoration(
+                color: Color.alphaBlend(
+                  sliding
+                      ? Colors.transparent
+                      : colors.accent.withValues(alpha: 0.12 * selection),
+                  colors.text.withValues(alpha: 0.055 * hoverProgress),
+                ),
+                borderRadius: BorderRadius.circular(7),
               ),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  widget.icon,
-                  size: 15,
-                  color: Color.lerp(
-                    hovered ? colors.text : colors.muted,
-                    colors.accent,
-                    selection,
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: 15,
+                    color: Color.lerp(
+                      Color.lerp(colors.muted, colors.text, hoverProgress),
+                      colors.accent,
+                      selection,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Color.lerp(
-                        hovered ? colors.text : colors.muted,
-                        colors.accent,
-                        selection,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Color.lerp(
+                          Color.lerp(colors.muted, colors.text, hoverProgress),
+                          colors.accent,
+                          selection,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                if (widget.trailing != null)
-                  Text(
-                    widget.trailing!,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Color.lerp(
-                        hovered ? colors.text : colors.muted,
-                        colors.text,
-                        selection,
+                  if (widget.trailing != null)
+                    Text(
+                      widget.trailing!,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Color.lerp(
+                          Color.lerp(colors.muted, colors.text, hoverProgress),
+                          colors.text,
+                          selection,
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1069,6 +1125,7 @@ class HarborWorkbench extends StatelessWidget {
                           SizedBox(
                             width: width,
                             child: HarborHostCard(
+                              key: ObjectKey(host),
                               host: host,
                               onSelect: () => onSelect(host),
                             ),
@@ -1266,7 +1323,8 @@ class _HarborHostCardState extends State<HarborHostCard> {
       child: GestureDetector(
         onTap: widget.onSelect,
         child: AnimatedContainer(
-          duration: harborMotion(context, 120),
+          duration: harborHoverMotion(context),
+          curve: Curves.easeOutCubic,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: colors.surface,
@@ -1888,7 +1946,8 @@ class HarborGroupHeader extends StatelessWidget {
         ? CupertinoIcons.star_fill
         : store.iconForGroup(name) ?? CupertinoIcons.folder_fill;
     return AnimatedContainer(
-      duration: harborMotion(context, 100),
+      duration: harborHoverMotion(context),
+      curve: Curves.easeOutCubic,
       margin: EdgeInsets.only(top: plain ? 10 : 4, bottom: 4),
       padding: EdgeInsets.symmetric(horizontal: 10, vertical: plain ? 4 : 5),
       decoration: BoxDecoration(
@@ -2430,7 +2489,9 @@ class _HarborContextMenuState extends State<HarborContextMenu> {
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () => invokeEntry(entries[i], i, isSubmenu),
-                      child: Container(
+                      child: AnimatedContainer(
+                        duration: harborHoverMotion(context),
+                        curve: Curves.easeOutCubic,
                         height: 32,
                         padding: const EdgeInsets.symmetric(horizontal: 9),
                         decoration: BoxDecoration(
@@ -4108,7 +4169,8 @@ class _HarborForwardingPageState extends State<HarborForwardingPage>
     final highlighted = _drop?.group == group && _drop?.target == null;
     return AnimatedContainer(
       key: _groupKeys.putIfAbsent(group, GlobalKey.new),
-      duration: harborMotion(context, 160),
+      duration: harborHoverMotion(context),
+      curve: Curves.easeOutCubic,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: highlighted
@@ -4699,7 +4761,9 @@ class _HarborServerPickerState extends State<_HarborServerPicker> {
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: () => Navigator.pop(context, host),
-                            child: Container(
+                            child: AnimatedContainer(
+                              duration: harborHoverMotion(context),
+                              curve: Curves.easeOutCubic,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
                               ),
@@ -5099,6 +5163,189 @@ class HarborSegmentedControl<T extends Object> extends StatelessWidget {
         ),
       ),
       onValueChanged: onValueChanged,
+    );
+  }
+}
+
+class HarborSlidingTabs extends StatefulWidget {
+  final List<String> labels;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final bool underline;
+  final String identifier;
+  const HarborSlidingTabs({
+    super.key,
+    required this.labels,
+    required this.selectedIndex,
+    required this.onSelected,
+    this.underline = false,
+    this.identifier = 'host-tab',
+  });
+  @override
+  State<HarborSlidingTabs> createState() => _HarborSlidingTabsState();
+}
+
+class _HarborSlidingTabsState extends State<HarborSlidingTabs> {
+  int? hovered;
+  @override
+  Widget build(BuildContext context) {
+    final colors = HarborColors.of(context);
+    final style = DefaultTextStyle.of(context).style.merge(
+      TextStyle(
+        fontSize: widget.underline ? 11 : 12,
+        fontWeight: widget.underline ? FontWeight.w400 : FontWeight.w500,
+      ),
+    );
+    final direction = Directionality.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final rects = <Rect>[];
+        var x = 0.0;
+        var y = 0.0;
+        var rowHeight = 0.0;
+        for (final label in widget.labels) {
+          final painter = TextPainter(
+            text: TextSpan(text: label, style: style),
+            textDirection: direction,
+            textScaler: MediaQuery.textScalerOf(context),
+          )..layout();
+          final width = (painter.width + (widget.underline ? 24 : 20))
+              .clamp(0.0, constraints.maxWidth)
+              .toDouble();
+          final height = painter.height + (widget.underline ? 22 : 14);
+          painter.dispose();
+          if (x > 0 && x + width > constraints.maxWidth) {
+            y += rowHeight + (widget.underline ? 6 : 4);
+            x = 0;
+            rowHeight = 0;
+          }
+          rects.add(
+            Rect.fromLTWH(
+              direction == TextDirection.rtl
+                  ? constraints.maxWidth - x - width
+                  : x,
+              y,
+              width,
+              height,
+            ),
+          );
+          x += width + (widget.underline ? 6 : 4);
+          rowHeight = height > rowHeight ? height : rowHeight;
+        }
+        final selected = rects[widget.selectedIndex];
+        return SizedBox(
+          height: y + rowHeight,
+          child: Stack(
+            children: [
+              if (widget.underline)
+                for (var index = 0; index < widget.labels.length; index++)
+                  Positioned(
+                    left: rects[index].left + 10,
+                    top: rects[index].bottom - 2,
+                    width: rects[index].width - 20,
+                    height: 2,
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        key: ValueKey('${widget.identifier}-hover:$index'),
+                        opacity: hovered == index ? 1 : 0,
+                        duration: harborHoverMotion(context),
+                        curve: Curves.easeOutCubic,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colors.accent.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              if (!widget.underline)
+                for (var index = 0; index < widget.labels.length; index++)
+                  Positioned.fromRect(
+                    rect: rects[index],
+                    child: IgnorePointer(
+                      child: AnimatedOpacity(
+                        key: ValueKey('${widget.identifier}-hover:$index'),
+                        opacity: hovered == index ? 1 : 0,
+                        duration: harborHoverMotion(context),
+                        curve: Curves.easeOutCubic,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colors.text.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              for (var index = 0; index < widget.labels.length; index++)
+                Positioned.fromRect(
+                  rect: rects[index],
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    onEnter: (_) => setState(() => hovered = index),
+                    onExit: (_) => setState(() {
+                      if (hovered == index) hovered = null;
+                    }),
+                    child: HarborHoverTransition(
+                      active: hovered == index,
+                      builder: (context, hoverProgress) => Semantics(
+                        button: true,
+                        selected: widget.selectedIndex == index,
+                        child: CupertinoButton(
+                          key: ValueKey('${widget.identifier}:$index'),
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          pressedOpacity: 1,
+                          onPressed: () => widget.onSelected(index),
+                          child: Container(
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(6),
+                              ),
+                            ),
+                            child: Text(
+                              widget.labels[index],
+                              style: style.copyWith(
+                                color: widget.selectedIndex == index
+                                    ? colors.accent
+                                    : Color.lerp(
+                                        CupertinoColors.systemGrey,
+                                        colors.text,
+                                        hoverProgress,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              AnimatedPositioned(
+                key: ValueKey('${widget.identifier}-selection'),
+                duration: harborMotion(context, 260),
+                curve: Curves.easeInOutCubic,
+                left: selected.left + (widget.underline ? 10 : 0),
+                top: widget.underline ? selected.bottom - 2 : selected.top,
+                width: selected.width - (widget.underline ? 20 : 0),
+                height: widget.underline ? 2 : selected.height,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: widget.underline
+                          ? colors.accent
+                          : colors.accent.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

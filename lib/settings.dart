@@ -777,11 +777,29 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
               ],
             ),
             const SizedBox(height: 20),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final name in const [
+            HarborSlidingTabs(
+              identifier: 'settings-tab',
+              underline: true,
+              labels: const [
+                'All',
+                'Appearance',
+                'Connections',
+                'Proxy',
+                'Data & privacy',
+                'Keyboard shortcuts',
+                'About',
+              ],
+              selectedIndex: const [
+                'All',
+                'Appearance',
+                'Connections',
+                'Proxy',
+                'Data & privacy',
+                'Keyboard shortcuts',
+                'About',
+              ].indexOf(category ?? 'All'),
+              onSelected: (index) => setState(() {
+                const categories = [
                   'All',
                   'Appearance',
                   'Connections',
@@ -789,49 +807,11 @@ class _HarborSettingsPageState extends State<HarborSettingsPage> {
                   'Data & privacy',
                   'Keyboard shortcuts',
                   'About',
-                ])
-                  Semantics(
-                    button: true,
-                    selected: (category ?? 'All') == name,
-                    child: CupertinoButton(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
-                      ),
-                      minimumSize: Size.zero,
-                      onPressed: () => setState(() {
-                        category = name == 'All' ? null : name;
-                        query = '';
-                        search.clear();
-                      }),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: (category ?? 'All') == name
-                                  ? colors.accent
-                                  : Colors.transparent,
-                              width: 2,
-                            ),
-                          ),
-                        ),
-                        child: Text(
-                          name,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: (category ?? 'All') == name
-                                ? colors.accent
-                                : colors.muted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+                ];
+                category = index == 0 ? null : categories[index];
+                query = '';
+                search.clear();
+              }),
             ),
             const SizedBox(height: 12),
             if (feedback != null || store.metadataError != null)

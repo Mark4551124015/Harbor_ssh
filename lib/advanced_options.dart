@@ -495,6 +495,7 @@ class _HarborSSHOptionPickerState extends State<HarborSSHOptionPicker> {
                     children: [
                       for (final option in options)
                         _HarborSSHOptionChoice(
+                          key: ValueKey(option.name),
                           option: option,
                           onSelected: () => Navigator.of(context).pop(option),
                         ),
@@ -511,6 +512,7 @@ class _HarborSSHOptionChoice extends StatefulWidget {
   final HarborSSHOption option;
   final VoidCallback onSelected;
   const _HarborSSHOptionChoice({
+    super.key,
     required this.option,
     required this.onSelected,
   });

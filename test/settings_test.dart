@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart' show ThemeMode, SelectableText;
 import 'package:flutter_test/flutter_test.dart';
@@ -393,6 +394,92 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets(
+    'Settings hover underline eases in and out without removing the indicator',
+    (tester) async {
+      final store = SettingsMemoryStore();
+      addTearDown(store.dispose);
+      await tester.binding.setSurfaceSize(const Size(1040, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SSHStore>.value(
+          value: store,
+          child: const HarborApplication(home: HarborSettingsPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final indicator = find.byKey(const ValueKey('settings-tab-hover:1'));
+      double opacity() => tester
+          .widget<FadeTransition>(
+            find.descendant(
+              of: indicator,
+              matching: find.byType(FadeTransition),
+            ),
+          )
+          .opacity
+          .value;
+      expect(opacity(), 0);
+      final selected = tester.getRect(
+        find.byKey(const ValueKey('settings-tab-selection')),
+      );
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(1000, 700));
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(
+        tester.getCenter(find.byKey(const ValueKey('settings-tab:1'))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(opacity(), greaterThan(0));
+      expect(opacity(), lessThan(1));
+      await tester.pumpAndSettle();
+      expect(opacity(), 1);
+      await mouse.moveTo(const Offset(1000, 700));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(indicator, findsOneWidget);
+      expect(opacity(), greaterThan(0));
+      expect(opacity(), lessThan(1));
+      await tester.pumpAndSettle();
+      expect(opacity(), 0);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('settings-tab-selection'))),
+        selected,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('Settings top underline slides between categories', (
+    tester,
+  ) async {
+    final store = SettingsMemoryStore();
+    addTearDown(store.dispose);
+    await tester.binding.setSurfaceSize(const Size(1040, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SSHStore>.value(
+        value: store,
+        child: const HarborApplication(home: HarborSettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final indicator = find.byKey(const ValueKey('settings-tab-selection'));
+    final start = tester.getRect(indicator);
+    final tab = find.byKey(const ValueKey('settings-tab:1'));
+    final target = tester.getRect(tab);
+    await tester.tap(tab);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final middle = tester.getRect(indicator);
+    expect(middle.left, greaterThan(start.left));
+    expect(middle.left, lessThan(target.left + 10));
+    expect(middle.height, 2);
+    expect(tester.getRect(tab), target);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(indicator).left, target.left + 10);
+    expect(tester.getRect(indicator).width, target.width - 20);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'Settings categories crossfade while segmented text stays stable',
     (tester) async {

@@ -48,6 +48,87 @@ class TunnelTestProcess implements Process {
 }
 
 void main() {
+  testWidgets(
+    'Sidebar hover remains visible through cross-group and same-group selection',
+    (tester) async {
+      final store = GroupTestStore();
+      addTearDown(store.dispose);
+      final first = SSHHost(hostAlias: 'first', hostName: 'first.test');
+      final second = SSHHost(hostAlias: 'second', hostName: 'second.test');
+      final third = SSHHost(hostAlias: 'third', hostName: 'third.test');
+      store.hosts = [first, second, third];
+      store.hostGroups.addAll({'first': 'A', 'second': 'B', 'third': 'B'});
+      store.selectHost(first);
+      await tester.binding.setSurfaceSize(const Size(1040, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SSHStore>.value(
+          value: store,
+          child: const HarborApplication(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) => widget is LibraryHostRow && identical(widget.host, first),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(1000, 880));
+      addTearDown(mouse.removePointer);
+      for (final host in [second, third]) {
+        final row = find.byWidgetPredicate(
+          (widget) => widget is LibraryHostRow && identical(widget.host, host),
+        );
+        final background = find
+            .descendant(of: row, matching: find.byType(AnimatedContainer))
+            .first;
+        Color color() =>
+            (tester.widget<AnimatedContainer>(background).decoration!
+                    as BoxDecoration)
+                .color!;
+        await mouse.moveTo(tester.getCenter(row));
+        await tester.pumpAndSettle();
+        final hovering = color();
+        expect(hovering.a, greaterThan(0));
+        await mouse.down(tester.getCenter(row));
+        await mouse.up();
+        for (final duration in [
+          Duration.zero,
+          const Duration(milliseconds: 16),
+          const Duration(milliseconds: 80),
+          const Duration(milliseconds: 200),
+        ]) {
+          await tester.pump(duration);
+          expect(
+            color(),
+            hovering,
+            reason: 'Clicking must preserve the independent hover backdrop.',
+          );
+        }
+        expect(store.currentHost, same(host));
+        expect(tester.widget<LibraryHostRow>(row).selected, isTrue);
+      }
+      await mouse.moveTo(const Offset(1000, 880));
+      await tester.pumpAndSettle();
+      final lastRow = find.byWidgetPredicate(
+        (widget) => widget is LibraryHostRow && identical(widget.host, third),
+      );
+      final lastBackground = find
+          .descendant(of: lastRow, matching: find.byType(AnimatedContainer))
+          .first;
+      expect(
+        (tester.widget<AnimatedContainer>(lastBackground).decoration!
+                as BoxDecoration)
+            .color!
+            .a,
+        0,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test(
     'Mappings start and stop independently and retain jump/key options',
     () async {
