@@ -44,9 +44,9 @@ public sealed partial class MainWindow
                 var automatic = new HarborSwitch { IsOn = preferences.Value.AutoCheckUpdates, OnContent = "", OffContent = "" };
                 ApplyAccentToggle(automatic);
                 automatic.Toggled += async (_, _) => await RunAsync(async () => { preferences.Value.AutoCheckUpdates = automatic.IsOn; await SavePreferencesAsync(); });
-                about.Children.Add(SettingRow("Automatically check for updates", "Check GitHub Releases when Harbor starts.", automatic));
-                about.Children.Add(ActionButton("Check for updates", CheckVersionAsync, Symbol.Refresh));
-                about.Children.Add(Muted("The workspace follows Harbor on macOS. Installation of updates is manual. Activity monitors local OpenSSH client processes and Harbor-managed forwards.")); sections.Children.Add(Card(about));
+                about.Children.Add(SettingRow("Automatically check for updates", "Check for compatible Windows updates at startup and notify when available.", automatic));
+                AddUpdateControls(about);
+                about.Children.Add(Muted("Activity monitors local OpenSSH client processes and Harbor-managed forwards.")); sections.Children.Add(Card(about));
             }
             if (sections.Children.Count == 0) sections.Children.Add(Muted("No matching settings."));
             var canvas = new Grid { Style = (Style)Application.Current.Resources["HarborCanvasStyle"] };

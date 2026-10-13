@@ -21,4 +21,6 @@ The compiler also accepts the local ignored tool at `.local-only/toolchain/inno/
 
 Both installers install for the current user, support a custom destination and shortcuts, and register an uninstaller. Application files live in the install directory's `app/` subfolder. Upgrades replace only that managed payload; SSH configuration and Harbor user preferences are stored separately and are not removed by uninstall.
 
+For in-app installation, upload the EXE assets to GitHub Releases and append their generated `installers/SHA256SUMS.txt` entries to the release's shared `SHA256SUMS.txt`. Keep existing macOS and ZIP checksums. A ZIP-only release can be downloaded in the Windows app, but requires manual replacement and is not advertised as an installer.
+
 Generated packages, compiler downloads, temporary staging folders, and signing keys are ignored by Git. Installer scripts are tracked. The EXE installers are unsigned unless a signing step is added separately.

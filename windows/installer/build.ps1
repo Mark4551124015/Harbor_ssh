@@ -27,12 +27,13 @@ try {
         $source = Join-Path $stagingRoot $variant
         [IO.Compression.ZipFile]::ExtractToDirectory($archive, $source)
         $version = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $source 'Harbor.Windows.dll')).Version.ToString(3)
-        & $Compiler "/DSourceDir=$source" "/DInstallerOutput=$OutputDirectory" "/DVariant=$variant" "/DAppVersion=$version" (Join-Path $PSScriptRoot 'Harbor.iss')
+        & $Compiler /Q "/DSourceDir=$source" "/DInstallerOutput=$OutputDirectory" "/DVariant=$variant" "/DAppVersion=$version" (Join-Path $PSScriptRoot 'Harbor.iss')
         if ($LASTEXITCODE -ne 0) { throw "Installer compile failed: $variant" }
         $installer = Join-Path $OutputDirectory "Harbor-Windows-x64-$variant-Setup.exe"
         $installerManifest += [pscustomobject]@{Variant=$variant; Version=$version; Architecture='x64'; Installer=$installer; Bytes=(Get-Item -LiteralPath $installer).Length; SHA256=(Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash}
     }
     $installerManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'installers.json') -Encoding utf8
+    $installerManifest | ForEach-Object { $_.SHA256.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($_.Installer) } | Set-Content -LiteralPath (Join-Path $OutputDirectory 'SHA256SUMS.txt') -Encoding utf8
     $installerManifest | Format-Table Variant, Version, @{Name='Installer MiB'; Expression={[Math]::Round($_.Bytes/1MB,2)}}
 }
 finally {
