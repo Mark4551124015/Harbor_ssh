@@ -2121,6 +2121,7 @@ class _MainWindowState extends State<MainWindow>
   final SSHActivityMonitor _activityMonitor = SSHActivityMonitor();
   bool _activityPage = false;
   final Map<String, GlobalKey> _sectionDropKeys = {};
+  final Map<String, GlobalKey> _stickySectionDropKeys = {};
   final Map<(String, SSHHost), GlobalKey> _rowDropKeys = {};
   bool _didAutoScroll = false;
   bool _dragCancelled = false;
@@ -2136,6 +2137,18 @@ class _MainWindowState extends State<MainWindow>
       return null;
     }
     for (final entry in _sectionDropKeys.entries) {
+      final box = entry.value.currentContext?.findRenderObject();
+      if (box is RenderBox &&
+          box.hasSize &&
+          (box.localToGlobal(Offset.zero) & box.size).contains(pointer)) {
+        return (
+          section: entry.key,
+          host: null,
+          after: box.globalToLocal(pointer).dy >= box.size.height / 2,
+        );
+      }
+    }
+    for (final entry in _stickySectionDropKeys.entries) {
       final box = entry.value.currentContext?.findRenderObject();
       if (box is RenderBox &&
           box.hasSize &&
@@ -2884,19 +2897,207 @@ class _MainWindowState extends State<MainWindow>
                                   null,
                                   store,
                                 ),
-                            child: SingleChildScrollView(
-                              controller: _listScrollController,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              child: HarborAnimatedSections(
-                                sections: orderedSections,
-                                collapsed: collapsedSections,
-                                folded: foldedHosts,
-                                sectionBuilder: (section) => Column(
-                                  children: [
-                                    HarborSectionDropTarget(
-                                      key: _sectionDropKeys.putIfAbsent(
+                            child: Stack(
+                              children: [
+                                SingleChildScrollView(
+                                  controller: _listScrollController,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                  child: HarborAnimatedSections(
+                                    sections: orderedSections,
+                                    collapsed: collapsedSections,
+                                    folded: foldedHosts,
+                                    sectionBuilder: (section) => Column(
+                                      children: [
+                                        HarborSectionDropTarget(
+                                          key: _sectionDropKeys.putIfAbsent(
+                                            section.key,
+                                            () => GlobalKey(),
+                                          ),
+                                          externalHover: _didAutoScroll
+                                              ? _dragHover?.section ==
+                                                        section.key &&
+                                                    _dragHover?.host == null
+                                              : null,
+                                          externalAfter: _dragHover?.after,
+                                          hostDrag: _dragLeader != null,
+                                          name: section.key,
+                                          pointerPosition: () => _dragPointer,
+                                          onDropHost: (host) {
+                                            if (_didAutoScroll) {
+                                              return;
+                                            }
+                                            store.moveHosts(
+                                              _selectionFor(host),
+                                              section.key,
+                                            );
+                                            setState(
+                                              () => _collapsed.remove(
+                                                section.key,
+                                              ),
+                                            );
+                                          },
+                                          onDropSection: (name, after) {
+                                            if (!_didAutoScroll) {
+                                              store.moveSection(
+                                                name,
+                                                section.key,
+                                                orderedSections.map(
+                                                  (entry) => entry.key,
+                                                ),
+                                                after: after,
+                                              );
+                                            }
+                                          },
+                                          builder: (highlighted) {
+                                            final header = HarborGroupHeader(
+                                              highlighted: highlighted,
+                                              name: section.key,
+                                              count: section.value.length,
+                                              collapsed: collapsedSections
+                                                  .contains(section.key),
+                                              plain: section.key == 'Ungrouped',
+                                            );
+                                            return GestureDetector(
+                                              onSecondaryTapUp: (details) =>
+                                                  _showNativeContextMenu(
+                                                    context,
+                                                    details.globalPosition,
+                                                    null,
+                                                    store,
+                                                    group: section.key,
+                                                  ),
+                                              onTap: () => setState(() {
+                                                if (!_collapsed.remove(
+                                                  section.key,
+                                                )) {
+                                                  _collapsed.add(section.key);
+                                                }
+                                              }),
+                                              child: section.key == 'Ungrouped'
+                                                  ? header
+                                                  : HarborSectionDraggable(
+                                                      name: section.key,
+                                                      onDragStarted: () =>
+                                                          _beginSectionDrag(
+                                                            section.key,
+                                                          ),
+                                                      onDragEnd: _finishDrag,
+                                                      child: header,
+                                                    ),
+                                            );
+                                          },
+                                        ),
+                                        HarborAnimatedHosts(
+                                          animateSelection: true,
+                                          selectedHost:
+                                              !_workbench &&
+                                                  !_mappingPage &&
+                                                  !_keysPage &&
+                                                  !_activityPage &&
+                                                  !_settingsPage &&
+                                                  _selectedHosts.length == 1 &&
+                                                  selectionSection ==
+                                                      section.key
+                                              ? store.currentHost
+                                              : null,
+                                          collapsed: collapsedSections.contains(
+                                            section.key,
+                                          ),
+                                          hosts: store.orderedHosts(
+                                            section.key,
+                                            section.value,
+                                          ),
+                                          folded: foldedHosts,
+                                          leader: _dragLeader,
+                                          itemBuilder: (host) =>
+                                              HarborHostDraggable(
+                                                key: _rowDropKeys.putIfAbsent((
+                                                  section.key,
+                                                  host,
+                                                ), () => GlobalKey()),
+                                                externalHover: _didAutoScroll
+                                                    ? _dragHover?.section ==
+                                                              section.key &&
+                                                          identical(
+                                                            _dragHover?.host,
+                                                            host,
+                                                          )
+                                                    : null,
+                                                externalAfter:
+                                                    _dragHover?.after,
+                                                pointerPosition: () =>
+                                                    _dragPointer,
+                                                onDragStarted: () =>
+                                                    _beginHostDrag(host),
+                                                selectionCount:
+                                                    _selectedHosts.contains(
+                                                      host,
+                                                    )
+                                                    ? _selectedHosts.length
+                                                    : 1,
+                                                onDragEnd: _finishDrag,
+                                                onDropAt: (source, after) {
+                                                  if (!_didAutoScroll) {
+                                                    store.moveHosts(
+                                                      _selectionFor(source),
+                                                      section.key,
+                                                      target: host,
+                                                      after: after,
+                                                    );
+                                                  }
+                                                },
+                                                child: LibraryHostRow(
+                                                  key: ObjectKey(host),
+                                                  host: host,
+                                                  selected:
+                                                      !_workbench &&
+                                                      !_mappingPage &&
+                                                      !_keysPage &&
+                                                      !_activityPage &&
+                                                      !_settingsPage &&
+                                                      _selectedHosts.contains(
+                                                        host,
+                                                      ) &&
+                                                      (_selectedHosts.length >
+                                                              1 ||
+                                                          section.key ==
+                                                              selectionSection),
+                                                  slidingSelection:
+                                                      _selectedHosts.length <=
+                                                      1,
+                                                  dragging:
+                                                      _dragLeader != null ||
+                                                      _dragSection != null,
+                                                  onTap: () => _clickHost(
+                                                    store,
+                                                    host,
+                                                    visibleHosts,
+                                                    section: section.key,
+                                                  ),
+                                                  onSecondaryTapUp: (details) =>
+                                                      _showNativeContextMenu(
+                                                        context,
+                                                        details.globalPosition,
+                                                        host,
+                                                        store,
+                                                      ),
+                                                ),
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                _HarborStickySectionHeader(
+                                  sections: orderedSections,
+                                  scrollController: _listScrollController,
+                                  viewportKey: _libraryViewportKey,
+                                  sectionKeys: _sectionDropKeys,
+                                  builder: (section) {
+                                    return HarborSectionDropTarget(
+                                      key: _stickySectionDropKeys.putIfAbsent(
                                         section.key,
                                         () => GlobalKey(),
                                       ),
@@ -2910,16 +3111,16 @@ class _MainWindowState extends State<MainWindow>
                                       name: section.key,
                                       pointerPosition: () => _dragPointer,
                                       onDropHost: (host) {
-                                        if (_didAutoScroll) {
-                                          return;
+                                        if (!_didAutoScroll) {
+                                          store.moveHosts(
+                                            _selectionFor(host),
+                                            section.key,
+                                          );
+                                          setState(
+                                            () =>
+                                                _collapsed.remove(section.key),
+                                          );
                                         }
-                                        store.moveHosts(
-                                          _selectionFor(host),
-                                          section.key,
-                                        );
-                                        setState(
-                                          () => _collapsed.remove(section.key),
-                                        );
                                       },
                                       onDropSection: (name, after) {
                                         if (!_didAutoScroll) {
@@ -2972,100 +3173,10 @@ class _MainWindowState extends State<MainWindow>
                                                 ),
                                         );
                                       },
-                                    ),
-                                    HarborAnimatedHosts(
-                                      animateSelection: true,
-                                      selectedHost:
-                                          !_workbench &&
-                                              !_mappingPage &&
-                                              !_keysPage &&
-                                              !_activityPage &&
-                                              !_settingsPage &&
-                                              _selectedHosts.length == 1 &&
-                                              selectionSection == section.key
-                                          ? store.currentHost
-                                          : null,
-                                      collapsed: collapsedSections.contains(
-                                        section.key,
-                                      ),
-                                      hosts: store.orderedHosts(
-                                        section.key,
-                                        section.value,
-                                      ),
-                                      folded: foldedHosts,
-                                      leader: _dragLeader,
-                                      itemBuilder: (host) =>
-                                          HarborHostDraggable(
-                                            key: _rowDropKeys.putIfAbsent((
-                                              section.key,
-                                              host,
-                                            ), () => GlobalKey()),
-                                            externalHover: _didAutoScroll
-                                                ? _dragHover?.section ==
-                                                          section.key &&
-                                                      identical(
-                                                        _dragHover?.host,
-                                                        host,
-                                                      )
-                                                : null,
-                                            externalAfter: _dragHover?.after,
-                                            pointerPosition: () => _dragPointer,
-                                            onDragStarted: () =>
-                                                _beginHostDrag(host),
-                                            selectionCount:
-                                                _selectedHosts.contains(host)
-                                                ? _selectedHosts.length
-                                                : 1,
-                                            onDragEnd: _finishDrag,
-                                            onDropAt: (source, after) {
-                                              if (!_didAutoScroll) {
-                                                store.moveHosts(
-                                                  _selectionFor(source),
-                                                  section.key,
-                                                  target: host,
-                                                  after: after,
-                                                );
-                                              }
-                                            },
-                                            child: LibraryHostRow(
-                                              key: ObjectKey(host),
-                                              host: host,
-                                              selected:
-                                                  !_workbench &&
-                                                  !_mappingPage &&
-                                                  !_keysPage &&
-                                                  !_activityPage &&
-                                                  !_settingsPage &&
-                                                  _selectedHosts.contains(
-                                                    host,
-                                                  ) &&
-                                                  (_selectedHosts.length > 1 ||
-                                                      section.key ==
-                                                          selectionSection),
-                                              slidingSelection:
-                                                  _selectedHosts.length <= 1,
-                                              dragging:
-                                                  _dragLeader != null ||
-                                                  _dragSection != null,
-                                              onTap: () => _clickHost(
-                                                store,
-                                                host,
-                                                visibleHosts,
-                                                section: section.key,
-                                              ),
-                                              onSecondaryTapUp: (details) =>
-                                                  _showNativeContextMenu(
-                                                    context,
-                                                    details.globalPosition,
-                                                    host,
-                                                    store,
-                                                  ),
-                                            ),
-                                          ),
-                                    ),
-                                  ],
+                                    );
+                                  },
                                 ),
-                              ),
+                              ],
                             ),
                           ),
                         ),
@@ -3340,6 +3451,67 @@ class _MainWindowState extends State<MainWindow>
       ),
     );
   }
+}
+
+class _HarborStickySectionHeader extends StatelessWidget {
+  final List<MapEntry<String, List<SSHHost>>> sections;
+  final ScrollController scrollController;
+  final GlobalKey viewportKey;
+  final Map<String, GlobalKey> sectionKeys;
+  final Widget Function(MapEntry<String, List<SSHHost>>) builder;
+
+  const _HarborStickySectionHeader({
+    required this.sections,
+    required this.scrollController,
+    required this.viewportKey,
+    required this.sectionKeys,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: scrollController,
+    builder: (context, _) {
+      final viewport = viewportKey.currentContext?.findRenderObject();
+      if (sections.isEmpty || viewport is! RenderBox || !viewport.hasSize) {
+        return const SizedBox.shrink();
+      }
+      final viewportTop = viewport.localToGlobal(Offset.zero).dy;
+      final tops = <double>[];
+      for (final section in sections) {
+        final renderObject = sectionKeys[section.key]?.currentContext
+            ?.findRenderObject();
+        if (renderObject is! RenderBox || !renderObject.hasSize) {
+          return const SizedBox.shrink();
+        }
+        tops.add(renderObject.localToGlobal(Offset.zero).dy - viewportTop);
+      }
+      var active = -1;
+      for (var index = 0; index < tops.length; index++) {
+        if (tops[index] < 0) {
+          active = index;
+        } else {
+          break;
+        }
+      }
+      if (active < 0) return const SizedBox.shrink();
+      final nextTop = active + 1 < tops.length ? tops[active + 1] : null;
+      final top = nextTop == null
+          ? 0.0
+          : (nextTop - 40).clamp(-40.0, 0.0).toDouble();
+      final section = sections[active];
+      return Positioned(
+        left: 12,
+        right: 12,
+        top: top,
+        height: 40,
+        child: ColoredBox(
+          color: HarborColors.of(context).sidebar,
+          child: builder(section),
+        ),
+      );
+    },
+  );
 }
 
 class HostDetailTabs extends StatefulWidget {
